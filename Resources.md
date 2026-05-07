@@ -24,9 +24,7 @@ https://www.youtube.com/watch?v=igIjGxF2J-w
 General Overview 
 https://www.youtube.com/watch?v=IyGwvGzrqp8 
 
-
 Watch if you have time, more in depth. I2C is most important
--
 
 UART
 https://www.youtube.com/watch?v=sTHckUyxwp8
@@ -40,7 +38,6 @@ https://www.youtube.com/watch?v=CAvawEcxoPU
 ## Embedded Computing Tricks
 
 Watch these in order
--
 
 Threading 
 https://www.youtube.com/watch?v=nVESQQg-Oiw
@@ -53,4 +50,7 @@ https://www.youtube.com/watch?v=oq29KUy29iQ
 
 DMA 
 https://www.youtube.com/watch?v=sFjU83tunZQ
+
+## GIT 
+https://education.github.com/git-cheat-sheet-education.pdf
 

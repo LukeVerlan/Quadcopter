@@ -38,6 +38,11 @@ _Advanced Goals_
 ## Purchasing
 https://docs.google.com/spreadsheets/d/132qhQDprO_i0Tp94H-LIQ6tLHuVDMiEORj1f4oo27E0/edit?usp=sharing
 
+## Debugger
+
+Run this in WSL
+`sudo apt install gdb-multiarch`
+
 ## Additional Software setup for flashing
 
 in WSL, run
@@ -54,3 +59,5 @@ the run
 
 if there is output of something connected, run 
 `cargo flash --chip STM32F411CE`
+
+

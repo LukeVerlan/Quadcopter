@@ -51,6 +51,7 @@ in WSL, run
 ## Flashing
 
 _FOR BLACKPILL_
+
 Connect that bizzy over usb
 
 - Hold BOOT0

@@ -37,3 +37,20 @@ _Advanced Goals_
 
 ## Purchasing
 https://docs.google.com/spreadsheets/d/132qhQDprO_i0Tp94H-LIQ6tLHuVDMiEORj1f4oo27E0/edit?usp=sharing
+
+## Additional Software setup for flashing
+
+in WSL, run
+`sudo apt install dfu-util`
+
+## Flashing
+
+- Hold BOOT0
+- Press reset
+- Release reset
+
+the run 
+`lsusb`
+
+if there is output of something connected, run 
+`cargo flash --chip STM32F411CE`

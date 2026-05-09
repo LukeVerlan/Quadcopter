@@ -54,3 +54,8 @@ https://www.youtube.com/watch?v=sFjU83tunZQ
 ## GIT 
 https://education.github.com/git-cheat-sheet-education.pdf
 
+## FreeRTOS 
+We will use this 
+
+https://www.freertos.org/Documentation/01-FreeRTOS-quick-start/01-Beginners-guide/00-Overview
+

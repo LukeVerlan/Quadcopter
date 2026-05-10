@@ -43,11 +43,6 @@ https://docs.google.com/spreadsheets/d/132qhQDprO_i0Tp94H-LIQ6tLHuVDMiEORj1f4oo2
 Run this in WSL
 `sudo apt install gdb-multiarch`
 
-## Additional Software setup for flashing
-
-in WSL, run
-`sudo apt install dfu-util`
-
 ## Flashing
 
 _FOR BLACKPILL_
@@ -58,10 +53,10 @@ Connect that bizzy over usb
 - Press reset
 - Release reset
 
-the run 
-`lsusb`
+Then Run 
 
-if there is output of something connected, run 
-`cargo flash --chip STM32F411CE`
+`cargo dfu`
+
+and it should flash
 
 

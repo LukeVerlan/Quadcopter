@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 cortex-m-rt = "0.7.5"
 panic-halt = "1.0.0"
+rtic = { version = "2", features = ["thumbv7-backend"] }
+stm32f4xx-hal = { version = "0.21", features = ["stm32f411"] }
 
 [[bin]]
 name = "Quadcopter"

@@ -58,3 +58,7 @@ https://education.github.com/git-cheat-sheet-education.pdf
 We will use this 
 [RTIC](https://rtic.rs/2/book/en/)
 
+## STM32F4xx Hardware Abstraction Layer (HAL) Documentation
+
+https://docs.rs/stm32f4xx-hal/0.23.0/stm32f4xx_hal/index.html
+

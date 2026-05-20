@@ -10,6 +10,7 @@ rtic = { version = "2", features = ["thumbv7-backend"] }
 rtic-monotonics = { version = "2", features = ["cortex-m-systick"] }
 stm32f4xx-hal = { version = "0.21", features = ["stm32f411"] }
 embedded-hal = "1.0.0"
+embedded-hal-async = "1.0"
 
 [package.metadata.dfu]
 chip = "STM32F411CEUx"

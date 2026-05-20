@@ -1,13 +1,21 @@
 
 
-/// Configurations
-const GYRO_ODR: GyroODR = GyroODR::Khz4;
-const GYRO_FSR: GyroFSR = GyroFSR::Dps2000;
-const ACCEL_ODR: AccelODR = AccelODR::Khz4;
-const ACCEL_FSR: AccelFSR = AccelFSR::G16; 
+/// Configuration commands
+
+pub const GYRO_ODR: GyroODR = GyroODR::Khz4;
+pub const GYRO_FSR: GyroFSR = GyroFSR::Dps2000;
+pub const ACCEL_ODR: AccelODR = AccelODR::Khz4;
+pub const ACCEL_FSR: AccelFSR = AccelFSR::G16;
+
+pub const RESET_CMD: u8 = 0b1;
+pub const ACCEL_LN_CMD: u8 = 0b11;
+pub const GYRO_LN_CMD : u8 = 0b11;
+
+
+/// Config Bit Masks
 
 // Gyro Sampling rate
-enum GyroODR {
+pub enum GyroODR {
     Khz32 = 0b0001,
     Khz16 = 0b0010,
     Khz8 = 0b0011,
@@ -23,7 +31,7 @@ enum GyroODR {
 }
 
 // Gyro Resolution
-enum GyroFSR {
+pub enum GyroFSR {
     Dps2000 = 0b000,
     Dps1000 = 0b001,
     Dps500 = 0b010,
@@ -35,7 +43,7 @@ enum GyroFSR {
 }
 
 // Accel Sampling rate
-enum AccelODR {
+pub enum AccelODR {
     Khz32 = 0b0001,
     Khz16 = 0b0010,
     Khz8 = 0b0011,
@@ -54,7 +62,7 @@ enum AccelODR {
 }
 
 // Accel resolution
-enum AccelFSR {
+pub enum AccelFSR {
     G16 = 0b000,
     G8 = 0b001,
     G4 = 0b010,

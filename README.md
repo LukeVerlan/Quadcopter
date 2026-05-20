@@ -43,20 +43,4 @@ https://docs.google.com/spreadsheets/d/132qhQDprO_i0Tp94H-LIQ6tLHuVDMiEORj1f4oo2
 Run this in WSL
 `sudo apt install gdb-multiarch`
 
-## Flashing
-
-_FOR BLACKPILL_
-
-Connect that bizzy over usb
-
-- Hold BOOT0
-- Press reset
-- Release reset
-
-Then Run 
-
-`cargo dfu`
-
-and it should flash
-
 

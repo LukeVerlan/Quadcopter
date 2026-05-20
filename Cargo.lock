@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "cortex-m-rt",
  "embedded-hal 1.0.0",
+ "embedded-hal-async",
  "panic-halt",
  "rtic",
  "rtic-monotonics",

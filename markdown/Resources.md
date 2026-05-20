@@ -1,4 +1,4 @@
-## General Low Level Progamming 
+## General Low Level Programming 
 
 Basics of C and general C/C++ programming
 https://www.youtube.com/watch?v=3lQEunpmtRA

@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+mod icm42688p;
+
 // Need for panic silence
 use panic_halt as _;
 

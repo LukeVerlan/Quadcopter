@@ -11,6 +11,11 @@ pub const RESET_CMD: u8 = 0b1;
 pub const ACCEL_LN_CMD: u8 = 0b11;
 pub const GYRO_LN_CMD : u8 = 0b11;
 
+pub const SPI_READ_CMD: u8 = 0b1;
+
+pub const SPI_WRITE_CMD: u8 = 0b0;
+pub const WHO_AM_I: u8 = 0x47;
+
 
 /// Config Bit Masks
 

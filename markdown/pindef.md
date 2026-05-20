@@ -9,6 +9,7 @@
 | SCK    | PB13       |
 | MISO   | PB14       |
 | MOSI   | PB15       |
+| INT1   | PA8        |
 
 ### W25Q128JV
 | Output | Pin Number |
@@ -39,7 +40,7 @@
 
 | Output | Pin Number |
 |--------|------------|
-| ESC 1  | PA8        |
+| ESC 1  | PA15       |
 | ESC 2  | PA9        |
 | ESC 3  | PA10       |
 | ESC 4  | PA11       |

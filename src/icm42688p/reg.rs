@@ -1,5 +1,3 @@
-
-
 /** Register Bank number */
 pub enum BankNum {
     Bank0 = 0x00,
@@ -79,7 +77,7 @@ pub enum Bank0 {
 
     // Int F
     IntFConfig0 = 0x4C,
-    IntFconfig1 = 0x4D,
+    IntFConfig1 = 0x4D,
 
     // Signal Path Reset
     SignalPathReset = 0x4B,

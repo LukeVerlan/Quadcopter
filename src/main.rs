@@ -1,13 +1,24 @@
 #![no_std]
 #![no_main]
+extern crate alloc;
+
+mod icm42688p;
 
 // Need for panic silence
 use panic_halt as _;
 
 use rtic::app;
 use rtic_monotonics::systick::prelude::*;
+use embedded_alloc::LlffHeap as Heap;
+
+// Subject to change
+const HEAP_SIZE: usize = 4096;
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
 
 systick_monotonic!(Mono, 1_000_00);
+
+
 
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0])]
 mod app {
@@ -31,6 +42,12 @@ mod app {
         // Clocks
         let rcc = dp.RCC.constrain();
         let clocks = rcc.cfgr.use_hse(25.MHz()).sysclk(96.MHz()).freeze();
+
+        // Init the heap
+        unsafe {
+            embedded_alloc::init!(HEAP, HEAP_SIZE);
+        }
+
 
         // Clock startup
         Mono::start(cx.core.SYST, clocks.sysclk().to_Hz());

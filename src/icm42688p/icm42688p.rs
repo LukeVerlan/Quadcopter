@@ -5,19 +5,69 @@
 // TODO: Learn about notch filtering and Anti-Alias for better data quality
 
 /// NOW!!
-// TODO: Start with polling implementation, just create a function that burst read regs
-// TODO: comments functions
-// and gyro registers
+// TODO: comment functions
 
 // hal interface
 use embedded_hal::spi::{Operation, SpiDevice};
 use embedded_hal_async::delay::DelayNs;
-use stm32f4xx_hal::pac::adc1::dr::DATA_R;
+use embedded_hal_bus::spi::ExclusiveDevice;
+use rtic_monotonics::fugit::RateExtU32;
+use stm32f4xx_hal::pac::{Peripherals, SPI2};
 // Bank Numbers
 use super::reg::{Bank0, DATA_READ_LEN, DATA_READ_START_REG};
 
 // Sensor Setup
 use super::config::*;
+use stm32f4xx_hal::gpio::{GpioExt, Output, PushPull, PB12, PB13, PB14, PB15};
+use stm32f4xx_hal::prelude::_stm32f4xx_hal_spi_SpiExt;
+use stm32f4xx_hal::rcc::Clocks;
+use stm32f4xx_hal::spi::{Mode, Phase, Polarity, Spi, Instance};
+use stm32f4xx_hal::gpio::Input;
+use crate::Mono;
+
+// spi Setup
+pub fn imu_setup(
+    spi: SPI2,
+    cs: PB12<Input>,
+    sck: PB13<Input>,
+    miso: PB14<Input>,
+    mosi: PB15<Input>,
+    clocks: &Clocks
+) -> (Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, Mono>, Mono>, IMUData) {
+
+    let cs = cs.into_push_pull_output();
+    let sck = sck.into_alternate::<5>();
+    let miso = miso.into_alternate::<5>();
+    let mosi = mosi.into_alternate::<5>();
+    
+    // Spi peripheral configuration
+    let spi = spi.spi(
+        (sck, miso, mosi),
+        Mode { polarity: Polarity::IdleHigh, phase: Phase::CaptureOnFirstTransition },
+        10_u32.MHz(),
+        clocks
+    );
+
+    let imu_spi = ExclusiveDevice::new(spi, cs, Mono).unwrap();
+
+    let imu_data = IMUData {
+
+        accel: Accel {
+            accel_x: f32::NAN,
+            accel_y: f32::NAN,
+            accel_z: f32::NAN,
+        },
+
+        gyro: Gyro {
+            gyro_x: f32::NAN,
+            gyro_y: f32::NAN,
+            gyro_z: f32::NAN,
+        }
+    };
+
+    // Create imu object
+    (Icm42688p::new(imu_spi, Mono), imu_data)
+}
 
 pub struct IMUData {
     pub accel: Accel,

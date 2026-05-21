@@ -1,8 +1,8 @@
 #![no_std]
 #![no_main]
 
-mod icm42688p;
-mod cli;
+pub mod icm42688p;
+pub mod cli;
 
 extern crate alloc;
 
@@ -24,9 +24,11 @@ systick_monotonic!(Mono, 1_000_000);
 mod app {
     use super::*;
     use super::icm42688p::icm42688p::{
-        Icm42688p, IMUData, Gyro, Accel
+        Icm42688p, IMUData, imu_setup
     };
-    use super::cli::cli::Writer;
+    use super::cli::cli::{
+        process, Writer
+    };
     use stm32f4xx_hal::prelude::*;
 
     use embedded_hal_bus::spi::ExclusiveDevice;
@@ -43,8 +45,8 @@ mod app {
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use core::convert::Infallible;
+
     use ufmt::uwrite;
-    use ufmt::uwriteln;
 
     #[shared]
     struct Shared {
@@ -56,7 +58,8 @@ mod app {
         led: PC13<Output<PushPull>>,
         imu:  Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, Mono>, Mono>,
         cli: Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>,
-        usb_dev: UsbDevice<'static, UsbBus<USB>>
+        usb_dev: UsbDevice<'static, UsbBus<USB>>,
+        ser: SerialPort<'static, UsbBus<USB>>
     }
 
     #[init]
@@ -90,41 +93,14 @@ mod app {
 
         // IMU Setup
 
-        // Pin Definitions
-        let cs1 = gpiob.pb12.into_push_pull_output();
-        let sck1 = gpiob.pb13.into_alternate();
-        let miso1 = gpiob.pb14.into_alternate();
-        let mosi1 = gpiob.pb15.into_alternate();
-
-        // Spi peripheral configuration
-        let spi1 = dp.SPI2.spi(
-            (sck1, miso1, mosi1),
-            Mode { polarity: Polarity::IdleHigh, phase: Phase::CaptureOnFirstTransition },
-            10_u32.MHz(),
-            &clocks
-        );
-
-        // Create embedded_hal spi device, exclusive device is for a dedicated SPI channel
-        let imu_spi = ExclusiveDevice::new(spi1, cs1, Mono).unwrap();
-
-        // Create imu object
-        let imu = Icm42688p::new(imu_spi, Mono);
-
-        // Shared data struct
-        let imu_data = IMUData {
-
-            accel: Accel {
-                accel_x: f32::NAN,
-                accel_y: f32::NAN,
-                accel_z: f32::NAN,
-            },
-
-            gyro: Gyro {
-                gyro_x: f32::NAN,
-                gyro_y: f32::NAN,
-                gyro_z: f32::NAN,
-            }
-        };
+         let (imu, imu_data) = imu_setup(
+             dp.SPI2,       // SPI instance
+             gpiob.pb12,    // CS 
+             gpiob.pb13,    // SCK
+             gpiob.pb14,    // MISO
+             gpiob.pb15,    // MOSI
+             &clocks        // Clock reference
+         );
 
         // ---------------------------------------
 
@@ -138,14 +114,15 @@ mod app {
 
         static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // 4096 bytes of memory for the serial port
 
-        let (ser, usb_dev) = unsafe {
+        let (ser, usb_dev, writer) = unsafe {
             USB_BUS = Some(UsbBus::new(usb, &mut EP_MEMORY));
             let usb_bus_ref = USB_BUS.as_ref().unwrap();
-            let ser = SerialPort::new(usb_bus_ref);
+            let mut ser = SerialPort::new(usb_bus_ref);
             let usb_dev = UsbDeviceBuilder::new(usb_bus_ref, UsbVidPid(0x16c0, 0x27dd))
                 .device_class(usbd_serial::USB_CLASS_CDC)
                 .build();
-            (ser, usb_dev)
+            let writer = Writer { ser: &raw mut ser };
+            (ser, usb_dev, writer)
         };
 
         let (command_buffer, history_buffer) = unsafe {
@@ -155,8 +132,6 @@ mod app {
             #[allow(static_mut_refs)]
             (COMMAND_BUFFER.as_mut(), HISTORY_BUFFER.as_mut())
         };
-
-        let writer = Writer { ser };
 
         let mut cli = CliBuilder::default()
             .writer(writer)
@@ -173,32 +148,37 @@ mod app {
         (Shared {
             imu_data
         }, Local {
-            led, imu, cli, usb_dev
+            led, imu, cli, usb_dev, ser
         })
     }
 
     // Try CLI here
-    #[idle(local = [cli, usb_dev], shared = [imu_data])]
+    #[idle(local = [cli, usb_dev, ser], shared = [imu_data])]
     fn idle(mut _cx: idle::Context) -> ! {
-        let cli = _cx.local.cli;
+        let mut cli = _cx.local.cli;
+        let usb_dev = _cx.local.usb_dev;
+        let ser = _cx.local.ser;
         let imu_data = _cx.shared.imu_data;
 
         let _ = cli.write(|writer| {
-
-            uwrite!(
-                writer,
-                "{}",
-                "Quadcopter Online"
-            )?;
-
+            uwrite!(writer,"{}","Quadcopter Online")?;
             Ok(())
-
         });
 
         // Write base cli
         loop {
-            
 
+            if(usb_dev.poll(&mut [ser])) {
+
+                // 64 serial characters
+                let mut buf: [u8; 64] = [0; 64];
+                if let Ok(count) = ser.read(&mut buf) {
+                    for byte in &buf[0..count] {
+                        process(&mut cli, *byte);
+                    }
+
+                }
+            }
         }
     }
 

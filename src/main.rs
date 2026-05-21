@@ -2,8 +2,6 @@
 #![no_main]
 extern crate alloc;
 
-mod icm42688p;
-
 // Need for panic silence
 use panic_halt as _;
 
@@ -17,8 +15,6 @@ const HEAP_SIZE: usize = 4096;
 static HEAP: Heap = Heap::empty();
 
 systick_monotonic!(Mono, 1_000_00);
-
-
 
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0])]
 mod app {

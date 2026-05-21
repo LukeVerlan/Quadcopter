@@ -1,17 +1,23 @@
 [package]
 name = "Quadcopter"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 cortex-m-rt = "0.7.5"
 panic-halt = "1.0.0"
 rtic = { version = "2", features = ["thumbv7-backend"] }
 rtic-monotonics = { version = "2", features = ["cortex-m-systick"] }
-stm32f4xx-hal = { version = "0.21", features = ["stm32f411"] }
+stm32f4xx-hal = { version = "0.21", features = ["stm32f411", "usb_fs"] }
 embedded-hal = "1.0.0"
 embedded-hal-async = "1.0"
 embedded-alloc = "0.7.0"
+embedded-cli = "0.2.1"
+embedded-hal-bus = "0.3.0"
+embedded-io = "0.6.1"
+ufmt = "0.2.0"
+usbd-serial = "0.2.2"
+usb-device = "0.3.2"
 
 [package.metadata.dfu]
 chip = "STM32F411CEUx"

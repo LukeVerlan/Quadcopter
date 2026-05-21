@@ -13,6 +13,7 @@ embedded-hal = "1.0.0"
 embedded-hal-async = "1.0"
 embedded-alloc = "0.7.0"
 embedded-cli = "0.2.1"
+embedded-hal-bus = "0.3.0"
 
 [package.metadata.dfu]
 chip = "STM32F411CEUx"

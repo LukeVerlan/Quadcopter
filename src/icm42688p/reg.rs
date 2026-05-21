@@ -7,6 +7,10 @@ pub enum BankNum {
     Bank4 = 0x04,
 }
 
+/// Consts
+pub const DATA_READ_LEN: usize = 12;
+pub const DATA_READ_START_REG: u8 = Bank0:: AccelDataX1 as u8;
+
 /** Bank 0 Registers */
 pub enum Bank0 {
 

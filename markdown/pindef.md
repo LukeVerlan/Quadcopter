@@ -2,7 +2,7 @@
 
 ## SPI 
 
-### ICM42688P
+### ICM42688P -- SPI2
 | Output | Pin Number |
 |--------|------------|
 | CS     | PB12       |
@@ -11,7 +11,7 @@
 | MOSI   | PB15       |
 | INT1   | PA8        |
 
-### W25Q128JV
+### W25Q128JV -- SPI1
 | Output | Pin Number |
 |--------|------------|
 | CS     | PA4        |

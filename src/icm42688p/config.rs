@@ -1,23 +1,29 @@
 
 
-/// Configuration commands
-
+/// Constants
 pub const GYRO_ODR: GyroODR = GyroODR::Khz4;
 pub const GYRO_FSR: GyroFSR = GyroFSR::Dps2000;
+
 pub const ACCEL_ODR: AccelODR = AccelODR::Khz4;
 pub const ACCEL_FSR: AccelFSR = AccelFSR::G16;
+pub const INTERRUPTS_ENABLED: bool = false;
 
-pub const RESET_CMD: u8 = 0b1;
-pub const ACCEL_LN_CMD: u8 = 0b11;
-pub const GYRO_LN_CMD : u8 = 0b11;
+/// Commands
+pub const ACCEL_PWR_CMD: u8 = AccelPWR::LowNoise as u8;
+pub const GYRO_PWR_CMD : u8 = GyroPWR::LowNoise as u8;
 
-pub const SPI_READ_CMD: u8 = 0b1;
-
-pub const SPI_WRITE_CMD: u8 = 0b0;
+/// Device Details
 pub const WHO_AM_I: u8 = 0x47;
+
+/// FOR DPS2000 (update if changes)
+pub const GYRO_SENS_FACTOR: f32 = 1.0 / 16.4;
+
+/// FOR G16 (update if changes)
+pub const ACCEL_SENS_FACTOR: f32 = 1.0 / 2048.0;
 
 
 /// Config Bit Masks
+/// -----------------
 
 // Gyro Sampling rate
 pub enum GyroODR {
@@ -72,4 +78,17 @@ pub enum AccelFSR {
     G8 = 0b001,
     G4 = 0b010,
     G2 = 0b011,
+}
+
+pub enum GyroPWR {
+    Off = 0b00,
+    Standby = 0b01,
+    LowNoise = 0b11
+}
+
+pub enum AccelPWR {
+    Off = 0b00,
+    Off2 = 0b01,
+    LowPower = 0b10,
+    LowNoise = 0b11
 }

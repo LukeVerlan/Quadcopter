@@ -40,10 +40,10 @@
 
 | Output | Pin Number |
 |--------|------------|
-| ESC 1  | PA15       |
-| ESC 2  | PA9        |
-| ESC 3  | PA10       |
-| ESC 4  | PA11       |
+| ESC 1  | PB1        |
+| ESC 2  | PB10       |
+| ESC 3  | PA0        |
+| ESC 4  | PA1        |
 
 ## Flashing
 
@@ -51,4 +51,12 @@
 |--------|------------|
 | SWDIO  | PA13       |
 | SWCLK  | PA14       |
+
+## USB 
+
+| Output  | Pin Number |
+|---------|------------|
+| USBDm - | PA11       |
+| USBDp + | PA12       |
+
 

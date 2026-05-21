@@ -31,7 +31,7 @@ pub struct Accel {
     pub accel_z: f32,
 }
 
-// Gyro Data -- Meters / Second^2
+// Gyro Data -- degrees / second
 pub struct Gyro {
     pub gyro_x: f32,
     pub gyro_y: f32,
@@ -109,15 +109,15 @@ impl <SPI: SpiDevice + 'static, D: DelayNs + 'static> Icm42688p<SPI, D> {
 
         // Update the struct values
         self.data.accel = Accel {
-            accel_x: (((buf[0] as u16) << 8 | buf[1] as u16) as f32) * ACCEL_SENS_FACTOR,
-            accel_y: (((buf[2] as u16) << 8 | buf[3] as u16) as f32) * ACCEL_SENS_FACTOR,
-            accel_z: (((buf[4] as u16) << 8 | buf[5] as u16) as f32) * ACCEL_SENS_FACTOR,
+            accel_x: (((buf[0] as i16) << 8 | buf[1] as i16) as f32) * ACCEL_SENS_FACTOR,
+            accel_y: (((buf[2] as i16) << 8 | buf[3] as i16) as f32) * ACCEL_SENS_FACTOR,
+            accel_z: (((buf[4] as i16) << 8 | buf[5] as i16) as f32) * ACCEL_SENS_FACTOR,
         };
 
         self.data.gyro = Gyro {
-            gyro_x: (((buf[6] as u16) << 8 | buf[7] as u16) as f32) * GYRO_SENS_FACTOR,
-            gyro_y: (((buf[8] as u16) << 8 | buf[9] as u16) as f32) * GYRO_SENS_FACTOR,
-            gyro_z: (((buf[10] as u16) << 8 | buf[11] as u16) as f32) * GYRO_SENS_FACTOR,
+            gyro_x: (((buf[6] as i16) << 8 | buf[7] as i16) as f32) * GYRO_SENS_FACTOR,
+            gyro_y: (((buf[8] as i16) << 8 | buf[9] as i16) as f32) * GYRO_SENS_FACTOR,
+            gyro_z: (((buf[10] as i16) << 8 | buf[11] as i16) as f32) * GYRO_SENS_FACTOR,
         };
 
         if INTERRUPTS_ENABLED {

@@ -17,12 +17,7 @@ use embedded_hal_async::delay::DelayNs;
 
 // Bank Numbers
 use super::reg::{
-    BankNum,
     Bank0,
-    Bank1,
-    Bank2,
-    Bank3,
-    Bank4,
 };
 
 // Sensor Setup

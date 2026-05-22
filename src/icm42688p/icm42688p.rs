@@ -69,12 +69,14 @@ pub fn imu_setup(
     (Icm42688p::new(imu_spi, Mono), imu_data)
 }
 
+#[derive(Copy, Clone)]
 pub struct IMUData {
     pub accel: Accel,
     pub gyro: Gyro,
 }
 
 // Accel Data -- G forces
+#[derive(Copy, Clone)]
 pub struct Accel {
     pub accel_x: f32,
     pub accel_y: f32,
@@ -82,6 +84,7 @@ pub struct Accel {
 }
 
 // Gyro Data -- degrees / second
+#[derive(Copy, Clone)]
 pub struct Gyro {
     pub gyro_x: f32,
     pub gyro_y: f32,
@@ -141,6 +144,10 @@ impl <SPI, D> Icm42688p<SPI, D> {
 
 // Exposed functions
 impl <SPI: SpiDevice + 'static, D: DelayNs + 'static> Icm42688p<SPI, D> {
+
+    pub fn get_data(&mut self) -> IMUData {
+        self.data
+    }
 
     pub async fn update(&mut self) -> Result<(), ImuError<SPI::Error>> {
 

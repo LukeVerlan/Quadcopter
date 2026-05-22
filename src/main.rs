@@ -1,12 +1,13 @@
 #![no_std]
 #![no_main]
 
-pub mod icm42688p;
 pub mod cli;
+pub mod icm42688p;
 
 extern crate alloc;
 
-use panic_halt as _;
+use defmt_rtt as _;
+use panic_probe as _;
 
 use rtic::app;
 use rtic_monotonics::systick::prelude::*;
@@ -18,14 +19,17 @@ const HEAP_SIZE: usize = 4096;
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-systick_monotonic!(Mono, 1_000_000);
+systick_monotonic!(Mono, 10_000);
 
-#[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1, EXTI2])]
+defmt::timestamp!("{=u32}", { 0u32 });
+
+#[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
 mod app {
     use super::*;
     use super::icm42688p::icm42688p::{
         Icm42688p, IMUData, imu_setup
     };
+
     use super::cli::cli::{
         process, Writer
     };
@@ -45,8 +49,12 @@ mod app {
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use core::convert::Infallible;
-
+    use rtic::Mutex;
     use ufmt::uwrite;
+
+    static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
+    static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
+    static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // 4096 bytes of memory for the serial port
 
     #[shared]
     struct Shared {
@@ -56,15 +64,13 @@ mod app {
     #[local]
     struct Local {
         led: PC13<Output<PushPull>>,
-        imu:  Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, Mono>, Mono>,
         cli: Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
-        ser: SerialPort<'static, UsbBus<USB>>
+        imu:  Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, Mono>, Mono>,
     }
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local) {
-
         let dp = cx.device;
 
         // Clocks
@@ -81,8 +87,6 @@ mod app {
 
         // CTRL CODE HERE
 
-        static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
-
         // Gpio pins
         let gpioa = dp.GPIOA.split();
         let gpiob = dp.GPIOB.split();
@@ -91,18 +95,16 @@ mod app {
         // Led
         let led = gpioc.pc13.into_push_pull_output();
 
-        // IMU Setup
+        // IMU
 
-         let (imu, imu_data) = imu_setup(
-             dp.SPI2,       // SPI instance
-             gpiob.pb12,    // CS 
-             gpiob.pb13,    // SCK
-             gpiob.pb14,    // MISO
-             gpiob.pb15,    // MOSI
-             &clocks        // Clock reference
-         );
-
-        // ---------------------------------------
+        let (imu, imu_data) = imu_setup(
+            dp.SPI2,       // SPI instance
+            gpiob.pb12,    // CS
+            gpiob.pb13,    // SCK
+            gpiob.pb14,    // MISO
+            gpiob.pb15,    // MOSI
+            &clocks        // Clock reference
+        );
 
         // CLI SETUP
 
@@ -112,17 +114,16 @@ mod app {
             &clocks
         );
 
-        static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // 4096 bytes of memory for the serial port
-
-        let (ser, usb_dev, writer) = unsafe {
+        let (usb_dev, writer) = unsafe {
             USB_BUS = Some(UsbBus::new(usb, &mut EP_MEMORY));
             let usb_bus_ref = USB_BUS.as_ref().unwrap();
             let mut ser = SerialPort::new(usb_bus_ref);
             let usb_dev = UsbDeviceBuilder::new(usb_bus_ref, UsbVidPid(0x16c0, 0x27dd))
                 .device_class(usbd_serial::USB_CLASS_CDC)
                 .build();
-            let writer = Writer { ser: &raw mut ser };
-            (ser, usb_dev, writer)
+            SER = Some(ser);
+            let writer = Writer { ser: &raw mut *SER.as_mut().unwrap() };
+            (usb_dev, writer)
         };
 
         let (command_buffer, history_buffer) = unsafe {
@@ -140,25 +141,23 @@ mod app {
             .build()
             .expect("Cli failed to init");
 
-        // -------------------------------------------
+        // // -------------------------------------------
 
         blink::spawn().unwrap();
-        imu_update::spawn().unwrap();
 
         (Shared {
             imu_data
         }, Local {
-            led, imu, cli, usb_dev, ser
+            led, cli, usb_dev, imu
         })
     }
 
     // Try CLI here
-    #[idle(local = [cli, usb_dev, ser], shared = [imu_data])]
+    #[idle(local = [cli, usb_dev])]
     fn idle(mut _cx: idle::Context) -> ! {
         let mut cli = _cx.local.cli;
         let usb_dev = _cx.local.usb_dev;
-        let ser = _cx.local.ser;
-        let imu_data = _cx.shared.imu_data;
+        let ser = unsafe { SER.as_mut().unwrap() };
 
         let _ = cli.write(|writer| {
             uwrite!(writer,"{}","Quadcopter Online")?;
@@ -168,7 +167,7 @@ mod app {
         // Write base cli
         loop {
 
-            if(usb_dev.poll(&mut [ser])) {
+            if usb_dev.poll(&mut [ser]) {
 
                 // 64 serial characters
                 let mut buf: [u8; 64] = [0; 64];
@@ -194,11 +193,18 @@ mod app {
     #[task(local = [imu], shared = [imu_data], priority = 2)]
     async fn imu_update(mut _cx: imu_update::Context) {
         let imu = _cx.local.imu;
+        let mut imu_data = _cx.shared.imu_data;
         imu.startup().await.unwrap();
         loop {
+            // Update vals
             imu.update().await.unwrap();
+
+            // Safely clone the data from the imu
+            imu_data.lock(|imu_data| {
+                *imu_data = imu.get_data();
+            });
+
             Mono::delay(250.micros()).await; // 4KHz res
         }
     }
-
 }

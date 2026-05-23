@@ -2,7 +2,6 @@
 #![no_main]
 
 pub mod cli;
-
 extern crate alloc;
 
 use defmt_rtt as _;

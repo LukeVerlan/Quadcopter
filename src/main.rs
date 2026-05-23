@@ -39,8 +39,7 @@ mod app {
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use core::convert::Infallible;
-    use rtic::Mutex;
-    use stm32f4xx_hal::serial::{Rx, Serial, Tx};
+    use stm32f4xx_hal::serial::{Rx, Tx};
     use ufmt::uwrite;
 
     // GPS
@@ -144,7 +143,7 @@ mod app {
             gpioa.pa3,
             &clocks
         );
-        
+
         let gps_data = gps.get_data();
 
         blink::spawn().unwrap();

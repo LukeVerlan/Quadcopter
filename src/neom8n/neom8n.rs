@@ -1,3 +1,4 @@
+use core::usize::MAX;
 use embedded_hal_nb::serial::{Read, Write};
 use stm32f4xx_hal::serial::{Config, Error, Tx, Rx, Serial};
 use stm32f4xx_hal::pac::USART2;
@@ -7,7 +8,11 @@ use nb;
 use stm32f4xx_hal::serial::config::{DmaConfig, Parity, StopBits, WordLength};
 use stm32f4xx_hal::time::Bps;
 
-pub const MAX_NMEA_0183: usize = 82;
+const MAX_NMEA_0183: usize = 82;
+const UTC_FIELD_SIZE: usize = 9;
+
+const KNOTS_TO_MS: f32 = 1.94384;
+
 pub const CONFIG: Config = Config {
     baudrate: Bps(9600),
     wordlength: WordLength::DataBits8,
@@ -36,6 +41,24 @@ pub fn gps_setup(
 }
 
 #[derive(Copy, Clone)]
+pub struct UtcTime {
+    pub hours: u8,
+    pub mins: u8,
+    pub secs: u8,
+}
+
+impl UtcTime {
+    fn new() -> Self {
+        UtcTime {
+            hours: 0,
+            mins: 0,
+            secs: 0
+        }
+
+    }
+}
+
+#[derive(Copy, Clone)]
 pub struct GpsData {
 
     // LLA position
@@ -45,6 +68,8 @@ pub struct GpsData {
     // Heading
     pub heading: f32, // Degrees
     pub velocity: f32, // m/s
+
+    pub utc: UtcTime,
 }
 
 impl GpsData {
@@ -53,25 +78,16 @@ impl GpsData {
             lat: f64::NAN,
             long: f64::NAN,
             heading: f32::NAN,
-            velocity: f32::NAN
+            velocity: f32::NAN,
+            utc: UtcTime::new(),
         }
     }
-
-    pub fn from(
-        lat: f64,
-        long: f64,
-        heading: f32,
-        velocity: f32,
-    ) -> Self {
-        GpsData { lat, long, heading, velocity }
-    }
 }
-
 #[derive(Debug)]
 pub enum GpsError<E> {
     Uart(E),
     BrokenMessage,
-    CheckSum
+    InvalidFix
 }
 
 // RX handled externally by hardware interrupt
@@ -146,58 +162,76 @@ where
 
         if buf[0] != b'$' { return Err(GpsError::BrokenMessage); }
 
-        let mut msg = buf.split(|&c| c == b',');
+        // Only need RMC messages
+        if &buf[3..6] != b"RMC" { return Ok(()) }
 
-        // Grab the message header
-        match msg.next() {
-            Some(b"$GGA") => Self::parse_gga(self, &mut msg)?,
-            Some(b"$GLL") => Self::parse_gll(self, &mut msg)?,
-            Some(b"$GSA") => Self::parse_glv(self, &mut msg)?,
-            Some(b"$GSV") => Self::parse_gsv(self, &mut msg)?,
-            Some(b"$RMC") => Self::parse_rmc(self, &mut msg)?,
-            Some(b"$VTG") => Self::parse_vtg(self, &mut msg)?,
-            Some(b"$TXT") => Self::parse_txt(self, &mut msg)?,
-            _ => return Err(GpsError::BrokenMessage)
+        self.parse_rmc(&buf)?;
+
+        Ok(())
+    }
+
+
+    // UTC
+    fn parse_utc(utc_slice: &[u8]) -> UtcTime {
+        let temp = core::str::from_utf8(utc_slice).unwrap();
+        UtcTime {
+            hours: temp.parse().unwrap(),
+            mins: temp.parse().unwrap(),
+            secs: temp.parse().unwrap(),
         }
-
-        Ok(())
     }
 
-    fn parse_gga<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
-        // TODO
-        Ok(())
+    // LLA
+    fn parse_lla(lat: &[u8], long: &[u8]) -> (f64, f64) {
+        let lat_temp = core::str::from_utf8(lat).unwrap();
+        let long_temp = core::str::from_utf8(long).unwrap();
+        ( lat_temp.parse::<f64>().unwrap(), long_temp.parse::<f64>().unwrap() )
     }
 
-    fn parse_gll<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
-        //TODO
-        Ok(())
+    // Speed over ground
+    fn parse_sog_cog(speed: &[u8], course: &[u8]) -> (f32, f32) {
+        let s_t = core::str::from_utf8(speed).unwrap();
+        let c_t = core::str::from_utf8(course).unwrap();
+        ( s_t.parse::<f32>().unwrap() / KNOTS_TO_MS, c_t.parse::<f32>().unwrap() )
     }
 
-    fn parse_glv<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
-        //TODO
-        Ok(())
-    }
-    fn parse_gsv<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
-        //TODO
-        Ok(())
-    }
+    /// RMC FMT : $ID,UTC,STATUS,LAT,N/S,LONG,E/W,SPEED OVER GROUND, COURSE OVER GRND,DATE,
+    ///           MAGNETIC VARIATION,EAST/WEST,MODE,CHECKSUM,TERMINATOR
+    fn parse_rmc(&mut self, msg: &[u8; MAX_NMEA_0183]) -> Result<(), GpsError<Error>> {
 
-    fn parse_rmc<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
-        //TODO
-        Ok(())
-    }
+        let mut sections = msg.split(|&b| b == b',');
+        sections.next(); // Skip header
 
-    fn parse_vtg<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
-        //TODO
-        Ok(())
-    }
+        // Break into needed pieces
+        let utc = sections.next().unwrap();
+        let valid_bit = sections.next().unwrap();
+        let lat = sections.next().unwrap();
+        let ns = sections.next().unwrap();
+        let long = sections.next().unwrap();
+        let ew = sections.next().unwrap();
+        let speed = sections.next().unwrap();  // Knots
+        let course = sections.next().unwrap(); // Degrees
+        let _date    = sections.next().unwrap();      // skip
+        let _mag_var = sections.next().unwrap();      // skip
+        let mag_dir  = sections.next().unwrap();
 
-    fn parse_txt<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
-        //TODO
-        Ok(())
-    }
+        // Valid bit is one char long
+        if valid_bit.first() != Some(&b'A') { return Err(GpsError::InvalidFix); }
 
-    fn validate_checksum(&mut self) -> Result<(), GpsError<Error>> {
+        // Parse Fields
+        let (lat, long) = Self::parse_lla(lat, long);
+        let utc = Self::parse_utc(utc);
+        let (velocity, heading) = Self::parse_sog_cog(speed, course);
+
+        // Update the data
+        self.data = GpsData {
+            lat,
+            long,
+            velocity,
+            heading,
+            utc
+        };
+
         Ok(())
     }
     

@@ -50,6 +50,7 @@ mod app {
     use usb_device::bus::UsbBusAllocator;
     use core::convert::Infallible;
     use rtic::Mutex;
+    use stm32f4xx_hal::timer::DelayUs;
     use ufmt::uwrite;
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
@@ -66,7 +67,7 @@ mod app {
         led: PC13<Output<PushPull>>,
         cli: Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
-        imu:  Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, Mono>, Mono>,
+        imu:  Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, DelayUs<TIM2>>>,
     }
 
     #[init]
@@ -96,14 +97,14 @@ mod app {
         let led = gpioc.pc13.into_push_pull_output();
 
         // IMU
-
         let (imu, imu_data) = imu_setup(
             dp.SPI2,       // SPI instance
             gpiob.pb12,    // CS
             gpiob.pb13,    // SCK
             gpiob.pb14,    // MISO
             gpiob.pb15,    // MOSI
-            &clocks        // Clock reference
+            &clocks,        // Clock reference
+            dp.TIM2.delay_us(&clocks)
         );
 
         // CLI SETUP
@@ -194,7 +195,7 @@ mod app {
     async fn imu_update(mut _cx: imu_update::Context) {
         let imu = _cx.local.imu;
         let mut imu_data = _cx.shared.imu_data;
-        imu.startup().await.unwrap();
+        imu.startup(&mut Mono).await.unwrap();
         loop {
             // Update vals
             imu.update().await.unwrap();

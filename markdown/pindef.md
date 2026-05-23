@@ -2,7 +2,7 @@
 
 ## SPI 
 
-### ICM42688P -- SPI2
+### ICM42688P -- SPI2 -- TIM2
 | Output | Pin Number |
 |--------|------------|
 | CS     | PB12       |

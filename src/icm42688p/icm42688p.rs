@@ -12,7 +12,8 @@ use embedded_hal::spi::{Operation, SpiDevice};
 use embedded_hal_async::delay::DelayNs;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use rtic_monotonics::fugit::RateExtU32;
-use stm32f4xx_hal::pac::{Peripherals, SPI2};
+use stm32f4xx_hal::timer::delay::DelayUs;
+use stm32f4xx_hal::pac::{Peripherals, SPI2, TIM2};
 // Bank Numbers
 use super::reg::{Bank0, DATA_READ_LEN, DATA_READ_START_REG};
 
@@ -25,6 +26,7 @@ use stm32f4xx_hal::spi::{Mode, Phase, Polarity, Spi, Instance};
 use stm32f4xx_hal::gpio::Input;
 use crate::Mono;
 
+
 // spi Setup
 pub fn imu_setup(
     spi: SPI2,
@@ -32,8 +34,9 @@ pub fn imu_setup(
     sck: PB13<Input>,
     miso: PB14<Input>,
     mosi: PB15<Input>,
-    clocks: &Clocks
-) -> (Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, Mono>, Mono>, IMUData) {
+    clocks: &Clocks,
+    delay: DelayUs<TIM2>
+) -> (Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, DelayUs<TIM2>>>, IMUData) {
 
     let cs = cs.into_push_pull_output();
     let sck = sck.into_alternate::<5>();
@@ -48,7 +51,7 @@ pub fn imu_setup(
         clocks
     );
 
-    let imu_spi = ExclusiveDevice::new(spi, cs, Mono).unwrap();
+    let imu_spi = ExclusiveDevice::new(spi, cs, delay).unwrap();
 
     let imu_data = IMUData {
 
@@ -66,7 +69,7 @@ pub fn imu_setup(
     };
 
     // Create imu object
-    (Icm42688p::new(imu_spi, Mono), imu_data)
+    (Icm42688p::new(imu_spi), imu_data)
 }
 
 #[derive(Copy, Clone)]
@@ -104,24 +107,21 @@ impl<E> From<E> for ImuError<E> {
 }
 
 // Imu definition
-pub struct Icm42688p<SPI, D> {
+pub struct Icm42688p<SPI> {
     spi: SPI,
-    delay: D,
     pub data: IMUData
 }
 
 // Constructor
-impl <SPI, D> Icm42688p<SPI, D> {
-    pub fn new(spi: SPI, delay: D) -> Self
+impl <SPI> Icm42688p<SPI> {
+    pub fn new(spi: SPI) -> Self
     where
         SPI: SpiDevice + 'static,
-        D:  DelayNs + 'static
     {
         // Return reference to imu
         Icm42688p {
 
             spi,
-            delay,
 
             data: IMUData {
                 accel: Accel {
@@ -143,7 +143,7 @@ impl <SPI, D> Icm42688p<SPI, D> {
 }
 
 // Exposed functions
-impl <SPI: SpiDevice + 'static, D: DelayNs + 'static> Icm42688p<SPI, D> {
+impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
 
     pub fn get_data(&mut self) -> IMUData {
         self.data
@@ -219,10 +219,10 @@ impl <SPI: SpiDevice + 'static, D: DelayNs + 'static> Icm42688p<SPI, D> {
         Ok(buf[0]) // return the buffered value
     }
 
-    pub async fn startup(&mut self) -> Result<(), ImuError<SPI::Error>> {
+    pub async fn startup(&mut self, delay: &mut impl DelayNs) -> Result<(), ImuError<SPI::Error>> {
 
         // Power on delay
-        self.delay.delay_ms(100).await;
+        delay.delay_ms(100).await;
 
         // Verify the Who am I
         let who_am_i = self.spi_read_reg(Bank0::WhoAmI as u8).await?;
@@ -233,12 +233,12 @@ impl <SPI: SpiDevice + 'static, D: DelayNs + 'static> Icm42688p<SPI, D> {
         // Reset for clarity
         self.soft_reset().await?;
 
-        self.delay.delay_ms(100).await;
+        delay.delay_ms(100).await;
 
         self.set_sensor_config().await?;
 
         // Delay for startup time
-        self.delay.delay_ms(100).await;
+        delay.delay_ms(100).await;
 
         Ok(())
     }

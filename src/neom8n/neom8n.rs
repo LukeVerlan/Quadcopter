@@ -70,6 +70,8 @@ impl GpsData {
 #[derive(Debug)]
 pub enum GpsError<E> {
     Uart(E),
+    BrokenMessage,
+    CheckSum
 }
 
 // RX handled externally by hardware interrupt
@@ -113,25 +115,89 @@ where
 
         // For Message syncing
         if self.msg_started {
-            if byte == b'\n' {
+
+            if self.msg_idx >= MAX_NMEA_0183 {
                 self.msg_started = false;
                 self.msg_idx = 0;
-                true
+            } else if byte == b'\n' {
+                self.msg_started = false;
+                self.msg_idx = 0;
+                return true;
             } else {
                 self.msg_idx += 1;
-                false
+
             }
+
         } else {
+
             if byte == b'$' {
                 self.msg_started = true;
                 self.msg_idx = 1;
             }
-            false
+
         }
+
+        false
     }
 
     pub fn parse_message(&mut self) -> Result<(), GpsError<Error>> {
-        todo!();
+
+        let buf: [u8; MAX_NMEA_0183] = self.rx_buffer; // Copy for interrupt safety
+
+        if buf[0] != b'$' { return Err(GpsError::BrokenMessage); }
+
+        let mut msg = buf.split(|&c| c == b',');
+
+        // Grab the message header
+        match msg.next() {
+            Some(b"$GGA") => Self::parse_gga(self, &mut msg)?,
+            Some(b"$GLL") => Self::parse_gll(self, &mut msg)?,
+            Some(b"$GSA") => Self::parse_glv(self, &mut msg)?,
+            Some(b"$GSV") => Self::parse_gsv(self, &mut msg)?,
+            Some(b"$RMC") => Self::parse_rmc(self, &mut msg)?,
+            Some(b"$VTG") => Self::parse_vtg(self, &mut msg)?,
+            Some(b"$TXT") => Self::parse_txt(self, &mut msg)?,
+            _ => return Err(GpsError::BrokenMessage)
+        }
+
+        Ok(())
+    }
+
+    fn parse_gga<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
+        // TODO
+        Ok(())
+    }
+
+    fn parse_gll<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
+        //TODO
+        Ok(())
+    }
+
+    fn parse_glv<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
+        //TODO
+        Ok(())
+    }
+    fn parse_gsv<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
+        //TODO
+        Ok(())
+    }
+
+    fn parse_rmc<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
+        //TODO
+        Ok(())
+    }
+
+    fn parse_vtg<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
+        //TODO
+        Ok(())
+    }
+
+    fn parse_txt<'a>(&mut self, msg: &mut impl Iterator<Item = &'a[u8]>) -> Result<(), GpsError<Error>> {
+        //TODO
+        Ok(())
+    }
+
+    fn validate_checksum(&mut self) -> Result<(), GpsError<Error>> {
         Ok(())
     }
     

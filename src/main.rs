@@ -23,14 +23,14 @@ systick_monotonic!(Mono, 10_000);
 
 defmt::timestamp!("{=u32}", { 0u32 });
 
-#[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
+#[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1, EXTI2])]
 mod app {
     use super::*;
     use super::cli::cli::{
         process, Writer
     };
     use stm32f4xx_hal::prelude::*;
-    use stm32f4xx_hal::gpio::{PC13, Output, PushPull, PA2};
+    use stm32f4xx_hal::gpio::{PC13, Output, PushPull};
 
     // CLI
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
@@ -39,31 +39,27 @@ mod app {
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use core::convert::Infallible;
-    use defmt::export::f64;
-    use stm32f4xx_hal::serial::{Config, Rx, Serial, Tx};
+    use rtic::Mutex;
+    use stm32f4xx_hal::serial::{Rx, Serial, Tx};
     use ufmt::uwrite;
 
     // GPS
-    use super::neom8n::neom8n::{Neom8n, GpsData, MAX_NMEA_0183};
+    use super::neom8n::neom8n::{Neom8n, GpsData, gps_setup};
 
     use stm32f4xx_hal::pac::USART2;
-    use stm32f4xx_hal::serial::config::{Parity, WordLength, StopBits, DmaConfig};
-    use stm32f4xx_hal::time::Bps;
 
     // CLI
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
     static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // 4096 bytes of memory for the serial port
 
-    // GPS UART
-    static mut GPS_UART_RX_BUF: [u8; MAX_NMEA_0183] = [0; MAX_NMEA_0183];
-    static mut NMEA_MSG_IDX: usize = 0;
 
     #[shared]
     struct Shared {
 
         // GPS
         gps_data: GpsData,
+        gps: Neom8n<Rx<USART2>, Tx<USART2>>
 
     }
 
@@ -76,10 +72,6 @@ mod app {
         // CLI
         cli: Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
-
-        // GPS
-        gps: Neom8n,
-        rx: Rx<USART2>,
     }
 
     #[init]
@@ -102,7 +94,6 @@ mod app {
 
         // Gpio pins
         let gpioa = dp.GPIOA.split();
-        // let gpiob = dp.GPIOB.split();
         let gpioc = dp.GPIOC.split();
 
         // Led
@@ -136,7 +127,7 @@ mod app {
             (COMMAND_BUFFER.as_mut(), HISTORY_BUFFER.as_mut())
         };
 
-        let mut cli = CliBuilder::default()
+        let cli = CliBuilder::default()
             .writer(writer)
             .command_buffer(command_buffer)
             .history_buffer(history_buffer)
@@ -146,35 +137,22 @@ mod app {
         // // -------------------------------------------
 
         // GPS SETUP
-
-        let tx_pin = gpioa.pa2.into_alternate();
-        let rx_pin = gpioa.pa3.into_alternate();
-
-        // GPS uart config
-        let uart = Serial::new(
+        
+        let mut gps = gps_setup(
             dp.USART2,
-            (tx_pin, rx_pin),
-            Config {
-                baudrate: Bps(9600),
-                wordlength: WordLength::DataBits8,
-                parity: Parity::ParityNone,
-                stopbits: StopBits::STOP1,
-                dma: DmaConfig::None
-            },
+            gpioa.pa2,
+            gpioa.pa3,
             &clocks
         );
-
-        let (tx, rx) = uart.unwrap().split();
-
-        let gps = Neom8n::new();
-        let gps_data = GpsData::new();
+        
+        let gps_data = gps.get_data();
 
         blink::spawn().unwrap();
 
         (Shared {
-            gps_data,
+            gps_data, gps
         }, Local {
-            led, cli, usb_dev, gps, rx
+            led, cli, usb_dev,
         })
     }
 
@@ -217,10 +195,25 @@ mod app {
     }
 
     // GPS UART RX interrupt handler
-    #[task(binds = USART2, local=[gps])]
+    #[task(binds = USART2, shared=[gps])]
     fn receive_gps_message(_cx: receive_gps_message::Context) {
-        let rx = unsafe { &mut GPS_UART_RX_BUF };
-        let idx = unsafe { &mut NMEA_MSG_IDX };
-        todo!();
+        let mut gps = _cx.shared.gps;
+        gps.lock(|gps| {
+                let message_built = gps.build_message();
+
+                if message_built {
+                    parse_gps_message::spawn().unwrap();
+                }
+        })
     }
+
+    #[task(shared=[gps], priority = 2)]
+    async fn parse_gps_message(_cx: parse_gps_message::Context) {
+        let mut gps = _cx.shared.gps;
+        gps.lock(|gps| {
+            gps.parse_message().unwrap();;
+        });
+    }
+
+
 }

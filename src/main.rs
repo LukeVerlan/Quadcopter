@@ -30,31 +30,56 @@ mod app {
         process, Writer
     };
     use stm32f4xx_hal::prelude::*;
-    use stm32f4xx_hal::gpio::{
-        PC13, Output, PushPull,     // LED
-    };
-    use stm32f4xx_hal::spi::{Spi, Mode, Polarity, Phase};
+    use stm32f4xx_hal::gpio::{PC13, Output, PushPull, PA2};
+
+    // CLI
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
     use embedded_cli::cli::{Cli, CliBuilder};
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use core::convert::Infallible;
+    use defmt::export::f64;
+    use stm32f4xx_hal::serial::{Config, Rx, Serial, Tx};
     use ufmt::uwrite;
 
+    // GPS
+    use super::neom8n::neom8n::{Neom8n, GpsData, MAX_NMEA_0183};
+
+    use stm32f4xx_hal::pac::USART2;
+    use stm32f4xx_hal::serial::config::{Parity, WordLength, StopBits, DmaConfig};
+    use stm32f4xx_hal::time::Bps;
+
+    // CLI
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
     static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // 4096 bytes of memory for the serial port
 
+    // GPS UART
+    static mut GPS_UART_RX_BUF: [u8; MAX_NMEA_0183] = [0; MAX_NMEA_0183];
+    static mut NMEA_MSG_IDX: usize = 0;
+
     #[shared]
     struct Shared {
+
+        // GPS
+        gps_data: GpsData,
+
     }
 
     #[local]
     struct Local {
+
+        // LED
         led: PC13<Output<PushPull>>,
+
+        // CLI
         cli: Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
+
+        // GPS
+        gps: Neom8n,
+        rx: Rx<USART2>,
     }
 
     #[init]
@@ -94,7 +119,7 @@ mod app {
         let (usb_dev, writer) = unsafe {
             USB_BUS = Some(UsbBus::new(usb, &mut EP_MEMORY));
             let usb_bus_ref = USB_BUS.as_ref().unwrap();
-            let mut ser = SerialPort::new(usb_bus_ref);
+            let ser = SerialPort::new(usb_bus_ref);
             let usb_dev = UsbDeviceBuilder::new(usb_bus_ref, UsbVidPid(0x16c0, 0x27dd))
                 .device_class(usbd_serial::USB_CLASS_CDC)
                 .build();
@@ -120,11 +145,36 @@ mod app {
 
         // // -------------------------------------------
 
+        // GPS SETUP
+
+        let tx_pin = gpioa.pa2.into_alternate();
+        let rx_pin = gpioa.pa3.into_alternate();
+
+        // GPS uart config
+        let uart = Serial::new(
+            dp.USART2,
+            (tx_pin, rx_pin),
+            Config {
+                baudrate: Bps(9600),
+                wordlength: WordLength::DataBits8,
+                parity: Parity::ParityNone,
+                stopbits: StopBits::STOP1,
+                dma: DmaConfig::None
+            },
+            &clocks
+        );
+
+        let (tx, rx) = uart.unwrap().split();
+
+        let gps = Neom8n::new();
+        let gps_data = GpsData::new();
+
         blink::spawn().unwrap();
 
         (Shared {
+            gps_data,
         }, Local {
-            led, cli, usb_dev
+            led, cli, usb_dev, gps, rx
         })
     }
 
@@ -164,5 +214,13 @@ mod app {
             led.toggle();
             Mono::delay(1000.millis()).await; // Wait 500 milliseconds
         }
+    }
+
+    // GPS UART RX interrupt handler
+    #[task(binds = USART2, local=[gps])]
+    fn receive_gps_message(_cx: receive_gps_message::Context) {
+        let rx = unsafe { &mut GPS_UART_RX_BUF };
+        let idx = unsafe { &mut NMEA_MSG_IDX };
+        todo!();
     }
 }

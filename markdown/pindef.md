@@ -29,7 +29,7 @@
 
 ## USART
 
-### NEO-M8N
+### NEO-M8N -- USART2
 
 | Output | Pin Number |
 |--------|------------|

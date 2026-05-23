@@ -4,6 +4,7 @@ use usbd_serial::SerialPort;
 use core::convert::Infallible;
 use embedded_cli::cli::Cli;
 use ufmt::uwrite;
+use usb_device::device::UsbDevice;
 
 // Serial port writer
 pub struct Writer {

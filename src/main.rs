@@ -110,7 +110,7 @@ mod app {
             (COMMAND_BUFFER.as_mut(), HISTORY_BUFFER.as_mut())
         };
 
-        let mut cli = CliBuilder::default()
+        let cli = CliBuilder::default()
             .writer(writer)
             .command_buffer(command_buffer)
             .history_buffer(history_buffer)

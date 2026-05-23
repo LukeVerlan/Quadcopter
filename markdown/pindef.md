@@ -2,15 +2,16 @@
 
 ## SPI 
 
-### ICM42688P
+### ICM42688P -- SPI2
 | Output | Pin Number |
 |--------|------------|
 | CS     | PB12       |
 | SCK    | PB13       |
 | MISO   | PB14       |
 | MOSI   | PB15       |
+| INT1   | PA8        |
 
-### W25Q128JV
+### W25Q128JV -- SPI1
 | Output | Pin Number |
 |--------|------------|
 | CS     | PA4        |
@@ -22,13 +23,13 @@
 
 ### BMP388
 | Output | Pin Number |
-|--------|-----------|
-| SDA    | PB7       |
-| SCL    | PB6       |
+|--------|------------|
+| SDA    | PB7        |
+| SCL    | PB6        |
 
 ## USART
 
-### NEO-M8N
+### NEO-M8N -- USART2
 
 | Output | Pin Number |
 |--------|------------|
@@ -39,10 +40,10 @@
 
 | Output | Pin Number |
 |--------|------------|
-| ESC 1  | PA8        |
-| ESC 2  | PA9        |
-| ESC 3  | PA10       |
-| ESC 4  | PA11       |
+| ESC 1  | PB1        |
+| ESC 2  | PB10       |
+| ESC 3  | PA0        |
+| ESC 4  | PA1        |
 
 ## Flashing
 
@@ -50,4 +51,12 @@
 |--------|------------|
 | SWDIO  | PA13       |
 | SWCLK  | PA14       |
+
+## USB 
+
+| Output  | Pin Number |
+|---------|------------|
+| USBDm - | PA11       |
+| USBDp + | PA12       |
+
 

@@ -132,20 +132,25 @@ where
         // For Message syncing
         if self.msg_started {
 
+            // Garbled Data
             if self.msg_idx >= MAX_NMEA_0183 {
                 self.msg_started = false;
                 self.msg_idx = 0;
+
+            // End of Message
             } else if byte == b'\n' {
                 self.msg_started = false;
                 self.msg_idx = 0;
                 return true;
+
+            // Valid Message
             } else {
                 self.msg_idx += 1;
-
             }
 
         } else {
 
+            // Start of message sync byte
             if byte == b'$' {
                 self.msg_started = true;
                 self.msg_idx = 1;
@@ -162,14 +167,13 @@ where
 
         if buf[0] != b'$' { return Err(GpsError::BrokenMessage); }
 
-        // Only need RMC messages
+        // Only need RMC messages, can add others later
         if &buf[3..6] != b"RMC" { return Ok(()) }
 
         self.parse_rmc(&buf)?;
 
         Ok(())
     }
-
 
     // UTC
     fn parse_utc(utc_slice: &[u8]) -> UtcTime {

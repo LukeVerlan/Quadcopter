@@ -2,6 +2,8 @@
 #![no_main]
 
 pub mod cli;
+pub mod neom8n;
+
 extern crate alloc;
 
 use defmt_rtt as _;

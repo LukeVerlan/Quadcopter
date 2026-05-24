@@ -21,6 +21,7 @@ defmt = "0.3"
 defmt-rtt = "0.4"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 cortex-m = "0.7.7"
+ufmt_float = "0.2.0"
 
 [package.metadata.dfu]
 chip = "STM32F411CEUx"

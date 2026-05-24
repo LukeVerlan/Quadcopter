@@ -26,9 +26,7 @@ defmt::timestamp!("{=u32}", { 0u32 });
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1, EXTI2])]
 mod app {
     use super::*;
-    use super::cli::cli::{
-        process, Writer
-    };
+    use super::cli::cli::{QuadCli, Writer};
     use stm32f4xx_hal::prelude::*;
     use stm32f4xx_hal::gpio::{PC13, Output, PushPull};
 
@@ -39,6 +37,7 @@ mod app {
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use core::convert::Infallible;
+    use rtic::Mutex;
     use stm32f4xx_hal::serial::{Rx, Tx};
     use ufmt::uwrite;
 
@@ -69,7 +68,7 @@ mod app {
         led: PC13<Output<PushPull>>,
 
         // CLI
-        cli: Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>,
+        quad_cli: QuadCli,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
     }
 
@@ -106,6 +105,7 @@ mod app {
             &clocks
         );
 
+        // USB setup
         let (usb_dev, writer) = unsafe {
             USB_BUS = Some(UsbBus::new(usb, &mut EP_MEMORY));
             let usb_bus_ref = USB_BUS.as_ref().unwrap();
@@ -118,6 +118,7 @@ mod app {
             (usb_dev, writer)
         };
 
+        // CLI buffers
         let (command_buffer, history_buffer) = unsafe {
             static mut COMMAND_BUFFER: [u8; 40] = [0; 40];
             static mut HISTORY_BUFFER: [u8; 41] = [0; 41];
@@ -126,6 +127,7 @@ mod app {
             (COMMAND_BUFFER.as_mut(), HISTORY_BUFFER.as_mut())
         };
 
+        // Build the CLI object
         let cli = CliBuilder::default()
             .writer(writer)
             .command_buffer(command_buffer)
@@ -133,7 +135,10 @@ mod app {
             .build()
             .expect("Cli failed to init");
 
-        // // -------------------------------------------
+        // Pass the cli object to our cli
+        let quad_cli = QuadCli::new(cli);
+
+        //  -------------------------------------------
 
         // GPS SETUP
         
@@ -151,35 +156,41 @@ mod app {
         (Shared {
             gps_data, gps
         }, Local {
-            led, cli, usb_dev,
+            led, quad_cli, usb_dev,
         })
     }
 
-    // Try CLI here
-    #[idle(local = [cli, usb_dev])]
+    #[idle(local = [quad_cli, usb_dev], shared = [gps_data])]
     fn idle(mut _cx: idle::Context) -> ! {
-        let mut cli = _cx.local.cli;
+        let cli = _cx.local.quad_cli;
         let usb_dev = _cx.local.usb_dev;
         let ser = unsafe { SER.as_mut().unwrap() };
+        let mut gps_data = _cx.shared.gps_data;
 
-        let _ = cli.write(|writer| {
-            uwrite!(writer,"{}","Quadcopter Online")?;
-            Ok(())
-        });
+        ser.write(b"Quadcopter online\n").unwrap();
 
         // Write base cli
         loop {
 
+            // Copy for thread safety
+            let gps_data_copy = gps_data.lock(|gps_data| {
+                *gps_data
+            });
+
+            cli.print_state(&gps_data_copy, ser);
+
+            // Taking in commands
             if usb_dev.poll(&mut [ser]) {
 
                 // 64 serial characters
                 let mut buf: [u8; 64] = [0; 64];
                 if let Ok(count) = ser.read(&mut buf) {
                     for byte in &buf[0..count] {
-                        process(&mut cli, *byte);
+                        cli.process(*byte);
                     }
                 }
             }
+
         }
     }
 
@@ -208,6 +219,5 @@ mod app {
             gps.parse_message().unwrap();;
         });
     }
-
 
 }

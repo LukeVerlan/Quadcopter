@@ -6,6 +6,8 @@ use stm32f4xx_hal::gpio::{PA2, PA3, Input};
 use nb;
 use stm32f4xx_hal::serial::config::{DmaConfig, Parity, StopBits, WordLength};
 use stm32f4xx_hal::time::Bps;
+use ufmt::{uDisplay, Formatter, uwrite};
+use ufmt_float::{uFmt_f32, uFmt_f64};
 
 const MAX_NMEA_0183: usize = 82;
 const UTC_FIELD_SIZE: usize = 9;
@@ -81,7 +83,27 @@ impl GpsData {
             utc: UtcTime::new(),
         }
     }
+
 }
+
+impl uDisplay for GpsData {
+    fn fmt<W: ufmt::uWrite + ?Sized>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error> {
+        uwrite!(
+            f,
+            "+------------------------------+\n\
+             |          GPS DATA            |\n\
+             +------------------------------+\n\
+             | Lat:      {} Long:     {}    |\n\
+             | Heading:  {} Velocity: {}    |\n\
+             +------------------------------+\n",
+            uFmt_f64::Five(self.lat), uFmt_f64::Five(self.long),
+            uFmt_f32::Two(self.heading), uFmt_f32::Two(self.velocity)
+        )
+    }
+    
+}
+
+
 #[derive(Debug)]
 pub enum GpsError<E> {
     Uart(E),
@@ -198,7 +220,7 @@ where
         ( s_t.parse::<f32>().unwrap() / KNOTS_TO_MS, c_t.parse::<f32>().unwrap() )
     }
 
-    /// RMC FMT : $ID,UTC,STATUS,LAT,N/S,LONG,E/W,SPEED OVER GROUND, COURSE OVER GRND,DATE,
+    /// RMC FMT : $ID,UTC,STATUS,LAT,N/S,LONG,E/W,SPEED OVER GROUND, COURSE OVER GROUND,DATE,
     ///           MAGNETIC VARIATION,EAST/WEST,MODE,CHECKSUM,TERMINATOR
     fn parse_rmc(&mut self, msg: &[u8; MAX_NMEA_0183]) -> Result<(), GpsError<Error>> {
 

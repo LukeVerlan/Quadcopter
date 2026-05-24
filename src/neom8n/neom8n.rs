@@ -272,7 +272,6 @@ where
             heading,
             utc
         };
-
     }
     
     pub fn get_data(&mut self) -> GpsData { self.data }

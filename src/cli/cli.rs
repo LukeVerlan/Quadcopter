@@ -1,9 +1,10 @@
-pub use embedded_cli::Command;
+use core::sync::atomic::{ Ordering};
+use embedded_cli::{Command, CommandGroup};
 use stm32f4xx_hal::otg_fs::{USB, UsbBus};
 use usbd_serial::SerialPort;
 use core::convert::Infallible;
 use embedded_cli::cli::Cli;
-use ufmt::uwrite;
+use rtic::export::atomic::AtomicBool;
 
 // Serial port writer
 pub struct Writer {
@@ -30,6 +31,16 @@ impl embedded_io::Write for Writer {
     }
 }
 
+static GPS_PRINTING: AtomicBool = AtomicBool::new(false);
+
+#[derive(Command)]
+#[command(help_title = "Gps Functions")]
+enum GpsCli {
+    // Print current GPS data
+    StartPrint,
+    StopPrint,
+}
+
 #[derive(Command)]
 pub enum Base<'a> {
     
@@ -40,18 +51,26 @@ pub enum Base<'a> {
     Exit,
 }
 
+#[derive(CommandGroup)]
+enum Group<'a> {
+    Base(Base<'a>),
+    Gps(GpsCli),
+}
+
+fn process_gps_cmds(cmd: GpsCli) -> Result<(), Infallible> {
+    match cmd {
+        StartPrint => unsafe {GPS_PRINTING.store(true, Ordering::Relaxed) ,
+    }
+}
+
 // cli/mod.rs
 pub fn process(cli: &mut Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>, byte: u8) {
     let _ = cli.process_byte::<Base, _>(
         byte,
-        &mut Base::processor(|cli, command| {
+        &mut Group::processor(|cli, command| {
             match command {
-                Base::Hello { name } => {
-                    uwrite!(cli.writer(), "Hello {}", name.unwrap_or("World"))?;
-                }
-                Base::Exit => {
-                    cli.writer().write_str("Idk how to do allat").ok();
-                }
+                Group::Base(cmd) => todo!("Process Base cmd"),
+                Group::Gps(cmd) => todo!("Process Gps cmd")
             }
             Ok(())
         }),

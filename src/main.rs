@@ -178,7 +178,6 @@ mod app {
                     for byte in &buf[0..count] {
                         process(&mut cli, *byte);
                     }
-
                 }
             }
         }
@@ -198,11 +197,7 @@ mod app {
     fn receive_gps_message(_cx: receive_gps_message::Context) {
         let mut gps = _cx.shared.gps;
         gps.lock(|gps| {
-                let message_built = gps.build_message();
-
-                if message_built {
-                    parse_gps_message::spawn().unwrap();
-                }
+                if gps.build_message() { parse_gps_message::spawn().unwrap(); }
         })
     }
 

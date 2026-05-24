@@ -1,4 +1,3 @@
-use core::usize::MAX;
 use embedded_hal_nb::serial::{Read, Write};
 use stm32f4xx_hal::serial::{Config, Error, Tx, Rx, Serial};
 use stm32f4xx_hal::pac::USART2;

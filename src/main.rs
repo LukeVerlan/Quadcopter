@@ -3,6 +3,7 @@
 
 pub mod cli;
 pub mod icm42688p;
+pub mod util;
 
 extern crate alloc;
 
@@ -30,9 +31,7 @@ mod app {
         Icm42688p, IMUData, imu_setup
     };
 
-    use super::cli::cli::{
-        process, Writer
-    };
+    use super::cli::cli::{ Writer };
     use stm32f4xx_hal::prelude::*;
 
     use embedded_hal_bus::spi::ExclusiveDevice;
@@ -41,17 +40,16 @@ mod app {
         PB12
     };
     use stm32f4xx_hal::pac::*;
-    use stm32f4xx_hal::spi::{Spi, Mode, Polarity, Phase};
+    use stm32f4xx_hal::spi::{Spi, Polarity, Phase};
 
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
-    use embedded_cli::cli::{Cli, CliBuilder};
+    use embedded_cli::cli::{CliBuilder};
+    use embedded_io::Write;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
-    use core::convert::Infallible;
-    use rtic::Mutex;
+    use super::cli::cli::QuadCli;
     use stm32f4xx_hal::timer::DelayUs;
-    use ufmt::uwrite;
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
@@ -65,8 +63,9 @@ mod app {
     #[local]
     struct Local {
         led: PC13<Output<PushPull>>,
-        cli: Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>,
+        cli: QuadCli,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
+
         imu:  Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, DelayUs<TIM2>>>,
     }
 
@@ -103,7 +102,7 @@ mod app {
             gpiob.pb13,    // SCK
             gpiob.pb14,    // MISO
             gpiob.pb15,    // MOSI
-            &clocks,        // Clock reference
+            &clocks,       // Clock reference
             dp.TIM2.delay_us(&clocks)
         );
 
@@ -142,6 +141,10 @@ mod app {
             .build()
             .expect("Cli failed to init");
 
+        let cli = QuadCli::new(
+            cli
+        );
+
         // // -------------------------------------------
 
         blink::spawn().unwrap();
@@ -154,19 +157,23 @@ mod app {
     }
 
     // Try CLI here
-    #[idle(local = [cli, usb_dev])]
+    #[idle(local = [cli, usb_dev], shared=[imu_data])]
     fn idle(mut _cx: idle::Context) -> ! {
         let mut cli = _cx.local.cli;
         let usb_dev = _cx.local.usb_dev;
         let ser = unsafe { SER.as_mut().unwrap() };
+        let mut imu = _cx.shared.imu_data;
 
-        let _ = cli.write(|writer| {
-            uwrite!(writer,"{}","Quadcopter Online")?;
-            Ok(())
-        });
+        ser.write_all(b"Quadcopter Online\n").unwrap();
 
         // Write base cli
         loop {
+
+            let imu_data = imu.lock(|imu| { imu.clone() });
+
+            cli.print_state(
+                &imu_data, ser, Mono::now().ticks()
+            );
 
             if usb_dev.poll(&mut [ser]) {
 
@@ -174,7 +181,7 @@ mod app {
                 let mut buf: [u8; 64] = [0; 64];
                 if let Ok(count) = ser.read(&mut buf) {
                     for byte in &buf[0..count] {
-                        process(&mut cli, *byte);
+                        cli.process(*byte);
                     }
 
                 }
@@ -205,7 +212,7 @@ mod app {
                 *imu_data = imu.get_data();
             });
 
-            Mono::delay(250.micros()).await; // 4KHz res
+            Mono::delay(300.micros()).await; // 4KHz res
         }
     }
 }

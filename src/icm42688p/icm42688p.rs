@@ -13,18 +13,20 @@ use embedded_hal_async::delay::DelayNs;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use rtic_monotonics::fugit::RateExtU32;
 use stm32f4xx_hal::timer::delay::DelayUs;
-use stm32f4xx_hal::pac::{Peripherals, SPI2, TIM2};
+use stm32f4xx_hal::pac::{SPI2, TIM2};
 // Bank Numbers
 use super::reg::{Bank0, DATA_READ_LEN, DATA_READ_START_REG};
 
 // Sensor Setup
 use super::config::*;
-use stm32f4xx_hal::gpio::{GpioExt, Output, PushPull, PB12, PB13, PB14, PB15};
+use stm32f4xx_hal::gpio::{Output, PushPull, PB12, PB13, PB14, PB15};
 use stm32f4xx_hal::prelude::_stm32f4xx_hal_spi_SpiExt;
 use stm32f4xx_hal::rcc::Clocks;
-use stm32f4xx_hal::spi::{Mode, Phase, Polarity, Spi, Instance};
+use stm32f4xx_hal::spi::{Mode, Phase, Polarity, Spi};
 use stm32f4xx_hal::gpio::Input;
-use crate::Mono;
+use ufmt::{uDisplay, Formatter, uwrite};
+use super::super::util::util::{DisplayF32};
+
 
 
 // spi Setup
@@ -76,6 +78,23 @@ pub fn imu_setup(
 pub struct IMUData {
     pub accel: Accel,
     pub gyro: Gyro,
+}
+
+impl uDisplay for IMUData {
+    fn fmt<W: ufmt::uWrite + ?Sized>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error> {
+        uwrite!(f,
+            "+--------------------------\n\
+             | Accel                    \n\
+             | X: {} Y:{} Z:{}          \n\
+             |                          \n\
+             | Gyro                     \n\
+             | X: {} Y: {} Z: {}        \n\
+             +-----------------------------\n",
+            DisplayF32(self.accel.accel_x), DisplayF32(self.accel.accel_y),
+            DisplayF32(self.accel.accel_z), DisplayF32(self.gyro.gyro_x),
+            DisplayF32(self.gyro.gyro_y), DisplayF32(self.gyro.gyro_z)
+        )
+    }
 }
 
 // Accel Data -- G forces

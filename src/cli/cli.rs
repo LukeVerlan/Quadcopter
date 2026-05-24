@@ -49,23 +49,27 @@ struct PrintingState {
 pub struct QuadCli {
     cli: Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>,
     printing_state: PrintingState,
+    last_print: Option<u32>
 }
 
 #[derive(Command)]
 #[command(help_title = "Gps Functions")]
 pub enum Gps {
-    // Print current GPS data
+    /// Start printing current GPS data
     StartPrint,
+    /// Stop printing GPS data
     StopPrint,
 }
 
 #[derive(Command)]
 pub enum Base<'a> {
 
+    /// Hello World
     Hello {
         name: Option<&'a str>,
     },
 
+    /// Exit cli
     Exit,
 }
 
@@ -83,15 +87,25 @@ impl QuadCli {
             printing_state: PrintingState {
                 gps_printing: AtomicBool::new(false),
             },
+            last_print: Some(0),
         }
     }
 
     pub fn print_state(
         &mut self,
         gps_data: &GpsData,
-        ser: *mut SerialPort<'static, UsbBus<USB>>
+        ser: *mut SerialPort<'static, UsbBus<USB>>,
+        now: u32
     ) {
         let mut w = Writer { ser };
+
+        // Time to 1hz
+        if let Some(last) = self.last_print {
+            if now - last < 10000 { return; }
+        }
+
+        self.last_print = Some(now);
+
         if self.printing_state.gps_printing.load(Ordering::Relaxed) {
             uwriteln!(w, "{}", gps_data).ok();
         }
@@ -114,7 +128,7 @@ impl QuadCli {
 
     pub fn process(&mut self, byte: u8) {
         let printing_state = &mut self.printing_state;
-        let _ = self.cli.process_byte::<Base, _>(
+        let _ = self.cli.process_byte::<Group, _>(
             byte,
             &mut Group::processor(|cli, command| {
                 match command {

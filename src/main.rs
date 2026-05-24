@@ -3,6 +3,7 @@
 
 pub mod cli;
 pub mod neom8n;
+pub mod util;
 
 extern crate alloc;
 
@@ -33,13 +34,10 @@ mod app {
     // CLI
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
-    use embedded_cli::cli::{Cli, CliBuilder};
+    use embedded_cli::cli::{CliBuilder};
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
-    use core::convert::Infallible;
-    use rtic::Mutex;
     use stm32f4xx_hal::serial::{Rx, Tx};
-    use ufmt::uwrite;
 
     // GPS
     use super::neom8n::neom8n::{Neom8n, GpsData, gps_setup};
@@ -151,8 +149,6 @@ mod app {
 
         let gps_data = gps.get_data();
 
-        blink::spawn().unwrap();
-
         (Shared {
             gps_data, gps
         }, Local {
@@ -177,7 +173,7 @@ mod app {
                 *gps_data
             });
 
-            cli.print_state(&gps_data_copy, ser);
+            cli.print_state(&gps_data_copy, ser, Mono::now().ticks());
 
             // Taking in commands
             if usb_dev.poll(&mut [ser]) {
@@ -194,29 +190,22 @@ mod app {
         }
     }
 
-    #[task(local=[led], priority = 1)]
-    async fn blink(_cx: blink::Context) {
-        let led = _cx.local.led;
-        loop {
-            led.toggle();
-            Mono::delay(1000.millis()).await; // Wait 500 milliseconds
-        }
-    }
-
     // GPS UART RX interrupt handler
-    #[task(binds = USART2, shared=[gps])]
+    #[task(binds = USART2, shared=[gps], local=[led])]
     fn receive_gps_message(_cx: receive_gps_message::Context) {
+        let led = _cx.local.led;
         let mut gps = _cx.shared.gps;
         gps.lock(|gps| {
-                if gps.build_message() { parse_gps_message::spawn().unwrap(); }
-        })
+                if gps.build_message() { led.toggle(); parse_gps_message::spawn().unwrap(); }
+        });
+
     }
 
     #[task(shared=[gps], priority = 2)]
     async fn parse_gps_message(_cx: parse_gps_message::Context) {
         let mut gps = _cx.shared.gps;
         gps.lock(|gps| {
-            gps.parse_message().unwrap();;
+            gps.parse_message();
         });
     }
 

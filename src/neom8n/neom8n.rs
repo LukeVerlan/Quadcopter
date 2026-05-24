@@ -1,5 +1,5 @@
 use embedded_hal_nb::serial::{Read, Write};
-use stm32f4xx_hal::serial::{Config, Error, Tx, Rx, Serial};
+use stm32f4xx_hal::serial::{Config, Tx, Rx, Serial};
 use stm32f4xx_hal::pac::USART2;
 use stm32f4xx_hal::rcc::Clocks;
 use stm32f4xx_hal::gpio::{PA2, PA3, Input};
@@ -7,10 +7,10 @@ use nb;
 use stm32f4xx_hal::serial::config::{DmaConfig, Parity, StopBits, WordLength};
 use stm32f4xx_hal::time::Bps;
 use ufmt::{uDisplay, Formatter, uwrite};
-use ufmt_float::{uFmt_f32, uFmt_f64};
+use stm32f4xx_hal::prelude::*;
+use super::super::util::util::{DisplayF32, DisplayF64};
 
 const MAX_NMEA_0183: usize = 82;
-const UTC_FIELD_SIZE: usize = 9;
 
 const KNOTS_TO_MS: f32 = 1.94384;
 
@@ -36,7 +36,9 @@ pub fn gps_setup(
         &clocks
     );
 
-    let (tx, rx) = uart.unwrap().split();
+    let (tx, mut rx) = uart.unwrap().split();
+
+    rx.listen(); // Enable interrupts
 
     Neom8n::new(rx, tx)
 }
@@ -90,17 +92,16 @@ impl uDisplay for GpsData {
     fn fmt<W: ufmt::uWrite + ?Sized>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error> {
         uwrite!(
             f,
-            "+------------------------------+\n\
-             |          GPS DATA            |\n\
-             +------------------------------+\n\
-             | Lat:      {} Long:     {}    |\n\
-             | Heading:  {} Velocity: {}    |\n\
+            "+-------------------------------- \n\
+             | Hours: {} Mins {} Sec {}     \n\
+             | Lat:      {} Long:     {}    \n\
+             | Heading:  {} Velocity: {}    \n\
              +------------------------------+\n",
-            uFmt_f64::Five(self.lat), uFmt_f64::Five(self.long),
-            uFmt_f32::Two(self.heading), uFmt_f32::Two(self.velocity)
+            self.utc.hours, self.utc.mins, self.utc.secs,
+            DisplayF64(self.lat), DisplayF64(self.long),
+            DisplayF32(self.heading), DisplayF32(self.velocity),
         )
     }
-    
 }
 
 
@@ -146,7 +147,10 @@ where
     /// message is not ready
     pub fn build_message(&mut self) -> bool {
 
-        let byte = nb::block!(self.rx.read()).unwrap();
+        let byte = match nb::block!(self.rx.read()) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
 
         self.rx_buffer[self.msg_idx] = byte;
 
@@ -175,6 +179,7 @@ where
             if byte == b'$' {
                 self.msg_started = true;
                 self.msg_idx = 1;
+                self.rx_buffer = [0; MAX_NMEA_0183];
             }
 
         }
@@ -182,47 +187,58 @@ where
         false
     }
 
-    pub fn parse_message(&mut self) -> Result<(), GpsError<Error>> {
+    pub fn parse_message(&mut self) {
 
         let buf: [u8; MAX_NMEA_0183] = self.rx_buffer; // Copy for interrupt safety
 
-        if buf[0] != b'$' { return Err(GpsError::BrokenMessage); }
-
         // Only need RMC messages, can add others later
-        if &buf[3..6] != b"RMC" { return Ok(()) }
+        if &buf[3..6] != b"RMC" { return }
 
-        self.parse_rmc(&buf)?;
+        self.parse_rmc(&buf);
+    }
 
-        Ok(())
+    fn parse_f32(field: &[u8]) -> f32 {
+        if field.is_empty() {
+            return f32::NAN;
+        }
+        core::str::from_utf8(field)
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(f32::NAN)
+    }
+
+    fn parse_f64(field: &[u8]) -> f64 {
+        if field.is_empty() {
+            return f64::NAN;
+        }
+        core::str::from_utf8(field)
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(f64::NAN)
     }
 
     // UTC
     fn parse_utc(utc_slice: &[u8]) -> UtcTime {
-        let temp = core::str::from_utf8(utc_slice).unwrap();
+        let temp = core::str::from_utf8(utc_slice).unwrap_or("000000");
         UtcTime {
-            hours: temp.parse().unwrap(),
-            mins: temp.parse().unwrap(),
-            secs: temp.parse().unwrap(),
+            hours: temp[0..2].parse().unwrap_or(0),
+            mins:  temp[2..4].parse().unwrap_or(0),
+            secs:  temp[4..6].parse().unwrap_or(0),
         }
     }
-
     // LLA
     fn parse_lla(lat: &[u8], long: &[u8]) -> (f64, f64) {
-        let lat_temp = core::str::from_utf8(lat).unwrap();
-        let long_temp = core::str::from_utf8(long).unwrap();
-        ( lat_temp.parse::<f64>().unwrap(), long_temp.parse::<f64>().unwrap() )
+        ( Self::parse_f64(lat), Self::parse_f64(long) )
     }
 
     // Speed over ground
     fn parse_sog_cog(speed: &[u8], course: &[u8]) -> (f32, f32) {
-        let s_t = core::str::from_utf8(speed).unwrap();
-        let c_t = core::str::from_utf8(course).unwrap();
-        ( s_t.parse::<f32>().unwrap() / KNOTS_TO_MS, c_t.parse::<f32>().unwrap() )
+        ( Self::parse_f32(speed) / KNOTS_TO_MS, Self::parse_f32(course) )
     }
 
     /// RMC FMT : $ID,UTC,STATUS,LAT,N/S,LONG,E/W,SPEED OVER GROUND, COURSE OVER GROUND,DATE,
     ///           MAGNETIC VARIATION,EAST/WEST,MODE,CHECKSUM,TERMINATOR
-    fn parse_rmc(&mut self, msg: &[u8; MAX_NMEA_0183]) -> Result<(), GpsError<Error>> {
+    fn parse_rmc(&mut self, msg: &[u8; MAX_NMEA_0183]) {
 
         let mut sections = msg.split(|&b| b == b',');
         sections.next(); // Skip header
@@ -241,7 +257,7 @@ where
         let mag_dir  = sections.next().unwrap();
 
         // Valid bit is one char long
-        if valid_bit.first() != Some(&b'A') { return Err(GpsError::InvalidFix); }
+        if valid_bit.first() != Some(&b'A') { return }
 
         // Parse Fields
         let (lat, long) = Self::parse_lla(lat, long);
@@ -257,14 +273,9 @@ where
             utc
         };
 
-        Ok(())
     }
     
-    pub fn get_data(&mut self) -> GpsData {
-        self.data
-    }
-
-
+    pub fn get_data(&mut self) -> GpsData { self.data }
 }
 
 

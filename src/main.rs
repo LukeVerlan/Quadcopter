@@ -35,6 +35,7 @@ mod app {
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
     use embedded_cli::cli::{CliBuilder};
+    use rtic::Mutex;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::serial::{Rx, Tx};
@@ -201,11 +202,19 @@ mod app {
 
     }
 
-    #[task(shared=[gps], priority = 2)]
+    #[task(shared=[gps, gps_data], priority = 2)]
     async fn parse_gps_message(_cx: parse_gps_message::Context) {
+
         let mut gps = _cx.shared.gps;
-        gps.lock(|gps| {
+        let mut gps_data = _cx.shared.gps_data;
+
+        let gps_data_clone = gps.lock(|gps| {
             gps.parse_message();
+            gps.get_data()
+        });
+
+        gps_data.lock(|gps_data| {
+            *gps_data = gps_data_clone
         });
     }
 

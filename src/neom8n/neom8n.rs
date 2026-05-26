@@ -226,9 +226,17 @@ where
             secs:  temp[4..6].parse().unwrap_or(0),
         }
     }
+
+    fn lla_frac_mins_to_deg(mins: f64, deg: f64) -> f64 { deg + (mins)/60.0 }
     // LLA
     fn parse_lla(lat: &[u8], long: &[u8]) -> (f64, f64) {
-        ( Self::parse_f64(lat), Self::parse_f64(long) )
+        let lat_d = Self::parse_f64(&lat[0..2]);
+        let lat_m = Self::parse_f64(&lat[2..9]);
+
+        let long_d = Self::parse_f64(&long[0..3]);
+        let long_m = Self::parse_f64(&long[3..10]);
+
+        ( Self::lla_frac_mins_to_deg(lat_d, lat_m), Self::lla_frac_mins_to_deg(long_d, long_m) )
     }
 
     // Speed over ground

@@ -6,9 +6,11 @@ use stm32f4xx_hal::gpio::{PA2, PA3, Input};
 use nb;
 use stm32f4xx_hal::serial::config::{DmaConfig, Parity, StopBits, WordLength};
 use stm32f4xx_hal::time::Bps;
-use ufmt::{uDisplay, Formatter, uwrite};
+use ufmt::{uDisplay, Formatter, uwrite, uWrite};
 use stm32f4xx_hal::prelude::*;
 use super::super::util::util::{DisplayF32, DisplayF64};
+
+// TODO: Comment functions on this bum code
 
 const MAX_NMEA_0183: usize = 82;
 
@@ -44,10 +46,35 @@ pub fn gps_setup(
 }
 
 #[derive(Copy, Clone)]
+pub struct FixQuality {
+    fix: u8,
+    satellites: u8
+}
+
+impl FixQuality {
+    fn new() -> Self {
+        FixQuality {
+            fix: 0,
+            satellites: 0
+        }
+    }
+
+}
+
+impl uDisplay for FixQuality {
+    fn fmt<W>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error>
+    where
+        W: uWrite + ?Sized,
+    {
+        uwrite!(f, "Fix: {} \t Satellites: {}", self.fix, self.satellites)
+    }
+}
+
+#[derive(Copy, Clone)]
 pub struct UtcTime {
     pub hours: u8,
     pub mins: u8,
-    pub secs: u8,
+    pub secs: f32,
 }
 
 impl UtcTime {
@@ -55,9 +82,18 @@ impl UtcTime {
         UtcTime {
             hours: 0,
             mins: 0,
-            secs: 0
+            secs: 0.0
         }
 
+    }
+}
+
+impl uDisplay for UtcTime {
+    fn fmt<W>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error>
+    where
+        W: uWrite + ?Sized,
+    {
+        uwrite!(f, "UTC {}:{}:{}", self.hours, self.mins, DisplayF32(self.secs))
     }
 }
 
@@ -72,7 +108,15 @@ pub struct GpsData {
     pub heading: f32, // Degrees
     pub velocity: f32, // m/s
 
+    // Altitude
+    pub alt: f32,  // m
+
     pub utc: UtcTime,
+    pub fix_quality: FixQuality,
+
+    // DEBUG
+    pub rmc_rx_buf_copy: [u8; MAX_NMEA_0183],
+    pub gga_rx_buf_copy: [u8; MAX_NMEA_0183]
 }
 
 impl GpsData {
@@ -82,7 +126,12 @@ impl GpsData {
             long: f64::NAN,
             heading: f32::NAN,
             velocity: f32::NAN,
+            alt: f32::NAN,
             utc: UtcTime::new(),
+            fix_quality: FixQuality::new(),
+            rmc_rx_buf_copy: [0; MAX_NMEA_0183],
+            gga_rx_buf_copy: [0; MAX_NMEA_0183]
+
         }
     }
 
@@ -92,14 +141,20 @@ impl uDisplay for GpsData {
     fn fmt<W: ufmt::uWrite + ?Sized>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error> {
         uwrite!(
             f,
-            "+-------------------------------- \n\
-             | Hours: {} Mins {} Sec {}     \n\
+            "+-------------------------------+ \n\
+             | {}    \n\
+             | {} \n\
+             | \n\
              | Lat:      {} Long:     {}    \n\
              | Heading:  {} Velocity: {}    \n\
+             | Alt: {} \n\
+             | RMC_BUF: {} \n\
+             | GGA_BUF: {} \n\
              +------------------------------+\n",
-            self.utc.hours, self.utc.mins, self.utc.secs,
+            self.utc, self.fix_quality,
             DisplayF64(self.lat), DisplayF64(self.long),
             DisplayF32(self.heading), DisplayF32(self.velocity),
+            DisplayF32(self.alt), core::str::from_utf8(&self.rmc_rx_buf_copy).unwrap(), core::str::from_utf8(&self.gga_rx_buf_copy).unwrap(),
         )
     }
 }
@@ -152,7 +207,6 @@ where
             Err(_) => return false,
         };
 
-        self.rx_buffer[self.msg_idx] = byte;
 
         // For Message syncing
         if self.msg_started {
@@ -165,11 +219,13 @@ where
             // End of Message
             } else if byte == b'\n' {
                 self.msg_started = false;
+                self.rx_buffer[self.msg_idx] = byte;
                 self.msg_idx = 0;
                 return true;
 
             // Valid Message
             } else {
+                self.rx_buffer[self.msg_idx] = byte;
                 self.msg_idx += 1;
             }
 
@@ -177,9 +233,11 @@ where
 
             // Start of message sync byte
             if byte == b'$' {
+                self.msg_idx = 0;
                 self.msg_started = true;
-                self.msg_idx = 1;
                 self.rx_buffer = [0; MAX_NMEA_0183];
+                self.rx_buffer[self.msg_idx] = byte;
+                self.msg_idx = 1;
             }
 
         }
@@ -189,32 +247,52 @@ where
 
     pub fn parse_message(&mut self) {
 
-        let buf: [u8; MAX_NMEA_0183] = self.rx_buffer; // Copy for interrupt safety
+        // Copy for interrupt safety
+        let buf: [u8; MAX_NMEA_0183] = self.rx_buffer;
 
-        // Only need RMC messages, can add others later
-        if &buf[3..6] != b"RMC" { return }
+        // Parse messages correctly
+        match &buf[3..6] {
+            b"RMC" => self.parse_rmc(&buf),
+            b"GGA" => self.parse_gga(&buf),
+            _ => return
+        }
 
-        self.parse_rmc(&buf);
     }
 
     fn parse_f32(field: &[u8]) -> f32 {
-        if field.is_empty() {
+        let trimmed = field
+            .split(|&b| b == 0 || b == b',' || b == b'\r' || b == b'\n')
+            .next()
+            .unwrap_or(&[]);
+
+        if trimmed.is_empty() {
             return f32::NAN;
         }
-        core::str::from_utf8(field)
+
+        core::str::from_utf8(trimmed)
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(f32::NAN)
     }
 
     fn parse_f64(field: &[u8]) -> f64 {
-        if field.is_empty() {
+        let trimmed = field
+            .split(|&b| b == 0 || b == b',' || b == b'\r' || b == b'\n')
+            .next()
+            .unwrap_or(&[]);
+
+        if trimmed.is_empty() {
             return f64::NAN;
         }
-        core::str::from_utf8(field)
+
+        core::str::from_utf8(trimmed)
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(f64::NAN)
+    }
+
+    fn parse_u8(val: &[u8]) -> u8 {
+        str::from_utf8(val).unwrap_or("0").parse::<u8>().unwrap_or(0)
     }
 
     // UTC
@@ -223,20 +301,28 @@ where
         UtcTime {
             hours: temp[0..2].parse().unwrap_or(0),
             mins:  temp[2..4].parse().unwrap_or(0),
-            secs:  temp[4..6].parse().unwrap_or(0),
+            secs:  Self::parse_f32(&utc_slice[4..]),
         }
     }
 
-    fn lla_frac_mins_to_deg(mins: f64, deg: f64) -> f64 { deg + (mins)/60.0 }
+    fn lla_frac_mins_to_deg(deg: f64, mins: f64) -> f64 { deg + mins / 60.0 }
     // LLA
-    fn parse_lla(lat: &[u8], long: &[u8]) -> (f64, f64) {
-        let lat_d = Self::parse_f64(&lat[0..2]);
-        let lat_m = Self::parse_f64(&lat[2..9]);
+    fn parse_lla(lat: &[u8], long: &[u8], ns: &[u8], ew: &[u8]) -> (f64, f64) {
 
-        let long_d = Self::parse_f64(&long[0..3]);
-        let long_m = Self::parse_f64(&long[3..10]);
+        let lat_d = Self::parse_f64(&lat[..2]);
+        let lat_m = Self::parse_f64(&lat[2..]);
 
-        ( Self::lla_frac_mins_to_deg(lat_d, lat_m), Self::lla_frac_mins_to_deg(long_d, long_m) )
+        let long_d = Self::parse_f64(&long[..3]);
+        let long_m = Self::parse_f64(&long[3..]);
+
+        let mut lat = Self::lla_frac_mins_to_deg(lat_d, lat_m);
+        let mut long = Self::lla_frac_mins_to_deg(long_d, long_m);
+
+        // Correct for location
+        if ns == b"S" { lat *= -1.0 }
+        if ew == b"W" { long *= -1.0 }
+
+        ( lat, long )
     }
 
     // Speed over ground
@@ -262,27 +348,64 @@ where
         let course = sections.next().unwrap(); // Degrees
         let _date    = sections.next().unwrap();      // skip
         let _mag_var = sections.next().unwrap();      // skip
-        let mag_dir  = sections.next().unwrap();
+        let _mag_dir  = sections.next().unwrap();
 
         // Valid bit is one char long
         if valid_bit.first() != Some(&b'A') { return }
 
         // Parse Fields
-        let (lat, long) = Self::parse_lla(lat, long);
+        let (lat, long) = Self::parse_lla(lat, long, ns, ew);
         let utc = Self::parse_utc(utc);
         let (velocity, heading) = Self::parse_sog_cog(speed, course);
 
         // Update the data
-        self.data = GpsData {
-            lat,
-            long,
-            velocity,
-            heading,
-            utc
-        };
+        self.data.utc = utc;
+        self.data.lat = lat;
+        self.data.long = long;
+        self.data.heading = heading;
+        self.data.velocity = velocity;
+
+        self.data.rmc_rx_buf_copy = *msg;
+    }
+
+    fn parse_gga(&mut self, msg: &[u8; MAX_NMEA_0183]) {
+        let mut sections = msg.split(|&b| b == b',');
+        sections.next(); // Skip header
+
+        // Break into needed pieces
+        let utc = sections.next().unwrap();
+        let lat = sections.next().unwrap();
+        let ns = sections.next().unwrap();
+        let long = sections.next().unwrap();
+        let ew = sections.next().unwrap();
+        let fix = sections.next().unwrap();
+        let satellites = sections.next().unwrap();
+        let _hdop = sections.next().unwrap();
+        let msl_alt   = sections.next().unwrap();       // skip
+        let _units = sections.next().unwrap();                // skip
+        let _geoid_separation  = sections.next().unwrap();    // skip
+        let _units = sections.next().unwrap();
+        let _age = sections.next().unwrap();
+
+        let utc = Self::parse_utc(utc);
+        let (lat, long) = Self::parse_lla(lat, long, ns, ew);
+        let fix = Self::parse_u8(fix);
+        let alt = Self::parse_f32(msl_alt);
+
+
+        let satellites = Self::parse_u8(satellites);
+
+        let fix_qual = FixQuality { fix, satellites };
+
+        // Update the values
+        self.data.utc = utc;
+        self.data.lat = lat;
+        self.data.long = long;
+        self.data.alt = alt;
+        self.data.fix_quality = fix_qual;
+
+        self.data.gga_rx_buf_copy = *msg;
     }
     
     pub fn get_data(&mut self) -> GpsData { self.data }
 }
-
-

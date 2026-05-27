@@ -116,7 +116,8 @@ pub struct GpsData {
 
     // DEBUG
     pub rmc_rx_buf_copy: [u8; MAX_NMEA_0183],
-    pub gga_rx_buf_copy: [u8; MAX_NMEA_0183]
+    pub gga_rx_buf_copy: [u8; MAX_NMEA_0183],
+
 }
 
 impl GpsData {
@@ -130,8 +131,7 @@ impl GpsData {
             utc: UtcTime::new(),
             fix_quality: FixQuality::new(),
             rmc_rx_buf_copy: [0; MAX_NMEA_0183],
-            gga_rx_buf_copy: [0; MAX_NMEA_0183]
-
+            gga_rx_buf_copy: [0; MAX_NMEA_0183],
         }
     }
 
@@ -260,11 +260,11 @@ where
     }
 
     fn parse_f32(field: &[u8]) -> f32 {
-        field.try_into().map(f32::from_le_bytes).unwrap_or(f32::NAN)
+        core::str::from_utf8(field).unwrap().parse::<f32>().unwrap_or(f32::NAN)
     }
 
     fn parse_u8(val: &[u8]) -> u8 {
-        str::from_utf8(val).unwrap_or("0").parse::<u8>().unwrap_or(0)
+        core::str::from_utf8(val).unwrap_or("0").parse::<u8>().unwrap_or(0)
     }
 
     // UTC
@@ -326,14 +326,14 @@ where
         if valid_bit.first() != Some(&b'A') { return }
 
         // Parse Fields
-        let (lat, long) = Self::parse_lla(lat, long, ns, ew);
+        let (lat_val, long_val) = Self::parse_lla(lat, long, ns, ew);
         let utc = Self::parse_utc(utc);
         let (velocity, heading) = Self::parse_sog_cog(speed, course);
 
         // Update the data
         self.data.utc = utc;
-        self.data.lat = lat;
-        self.data.long = long;
+        self.data.lat = lat_val;
+        self.data.long = long_val;
         self.data.heading = heading;
         self.data.velocity = velocity;
 

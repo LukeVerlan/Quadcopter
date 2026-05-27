@@ -260,7 +260,7 @@ where
     }
 
     fn parse_f32(field: &[u8]) -> f32 {
-        str::from_utf8(field).unwrap_or("NaN").parse::<f32>().unwrap_or(f32::NAN)
+        field.try_into().map(f32::from_le_bytes).unwrap_or(f32::NAN)
     }
 
     fn parse_u8(val: &[u8]) -> u8 {

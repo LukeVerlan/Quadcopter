@@ -3,7 +3,7 @@ use stm32f4xx_hal::otg_fs::{USB, UsbBus};
 use usbd_serial::SerialPort;
 use core::convert::Infallible;
 use embedded_cli::cli::{Cli, CliHandle};
-use ufmt::{uwrite, uwriteln};
+use ufmt::{uwrite};
 
 // Serial port writer
 pub struct Writer {

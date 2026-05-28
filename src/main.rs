@@ -2,6 +2,7 @@
 #![no_main]
 
 pub mod cli;
+pub mod util;
 
 extern crate alloc;
 
@@ -25,21 +26,18 @@ defmt::timestamp!("{=u32}", { 0u32 });
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
 mod app {
     use super::*;
-    use super::cli::cli::{
-        process, Writer
-    };
+    use super::cli::cli::{QuadCli, Writer};
     use stm32f4xx_hal::prelude::*;
-    use stm32f4xx_hal::gpio::{
-        PC13, Output, PushPull,     // LED
-    };
-    use stm32f4xx_hal::spi::{Spi, Mode, Polarity, Phase};
+    use stm32f4xx_hal::gpio::{PC13, Output, PushPull};
+
+    // CLI
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
-    use embedded_cli::cli::{Cli, CliBuilder};
+    use embedded_cli::cli::{CliBuilder};
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
-    use core::convert::Infallible;
-    use ufmt::uwrite;
+    use stm32f4xx_hal::serial::{Rx, Tx};
+
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
@@ -51,8 +49,12 @@ mod app {
 
     #[local]
     struct Local {
+
+        // LED
         led: PC13<Output<PushPull>>,
-        cli: Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>,
+
+        // CLI
+        quad_cli: QuadCli,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
     }
 
@@ -76,7 +78,6 @@ mod app {
 
         // Gpio pins
         let gpioa = dp.GPIOA.split();
-        // let gpiob = dp.GPIOB.split();
         let gpioc = dp.GPIOC.split();
 
         // Led
@@ -90,10 +91,11 @@ mod app {
             &clocks
         );
 
+        // USB setup
         let (usb_dev, writer) = unsafe {
             USB_BUS = Some(UsbBus::new(usb, &mut EP_MEMORY));
             let usb_bus_ref = USB_BUS.as_ref().unwrap();
-            let mut ser = SerialPort::new(usb_bus_ref);
+            let ser = SerialPort::new(usb_bus_ref);
             let usb_dev = UsbDeviceBuilder::new(usb_bus_ref, UsbVidPid(0x16c0, 0x27dd))
                 .device_class(usbd_serial::USB_CLASS_CDC)
                 .build();
@@ -102,6 +104,7 @@ mod app {
             (usb_dev, writer)
         };
 
+        // CLI buffers
         let (command_buffer, history_buffer) = unsafe {
             static mut COMMAND_BUFFER: [u8; 40] = [0; 40];
             static mut HISTORY_BUFFER: [u8; 41] = [0; 41];
@@ -110,6 +113,7 @@ mod app {
             (COMMAND_BUFFER.as_mut(), HISTORY_BUFFER.as_mut())
         };
 
+        // Build the CLI object
         let cli = CliBuilder::default()
             .writer(writer)
             .command_buffer(command_buffer)
@@ -117,27 +121,24 @@ mod app {
             .build()
             .expect("Cli failed to init");
 
-        // // -------------------------------------------
+        // Pass the cli object to our cli
+        let quad_cli = QuadCli::new(cli);
 
-        blink::spawn().unwrap();
+        //  -------------------------------------------
 
         (Shared {
         }, Local {
-            led, cli, usb_dev
+            led, quad_cli, usb_dev,
         })
     }
 
-    // Try CLI here
-    #[idle(local = [cli, usb_dev])]
+    #[idle(local = [quad_cli, usb_dev], shared = [gps_data])]
     fn idle(mut _cx: idle::Context) -> ! {
-        let mut cli = _cx.local.cli;
+        let cli = _cx.local.quad_cli;
         let usb_dev = _cx.local.usb_dev;
         let ser = unsafe { SER.as_mut().unwrap() };
 
-        let _ = cli.write(|writer| {
-            uwrite!(writer,"{}","Quadcopter Online")?;
-            Ok(())
-        });
+        ser.write(b"Quadcopter online\n").unwrap();
 
         // Write base cli
         loop {
@@ -148,9 +149,8 @@ mod app {
                 let mut buf: [u8; 64] = [0; 64];
                 if let Ok(count) = ser.read(&mut buf) {
                     for byte in &buf[0..count] {
-                        process(&mut cli, *byte);
+                        cli.process(*byte);
                     }
-
                 }
             }
         }

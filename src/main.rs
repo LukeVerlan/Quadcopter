@@ -132,7 +132,7 @@ mod app {
         })
     }
 
-    #[idle(local = [quad_cli, usb_dev], shared = [gps_data])]
+    #[idle(local = [quad_cli, usb_dev])]
     fn idle(mut _cx: idle::Context) -> ! {
         let cli = _cx.local.quad_cli;
         let usb_dev = _cx.local.usb_dev;

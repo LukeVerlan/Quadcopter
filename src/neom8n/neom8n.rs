@@ -12,6 +12,7 @@ use crate::util::util::{parse_f64, parse_f32, parse_u8, DisplayFloat} ;
 
 // TODO: Comment functions on this bum code
 
+/** Constants */
 const MAX_NMEA_0183: usize = 82;
 
 const KNOTS_TO_MS: f32 = 1.94384;
@@ -24,6 +25,7 @@ pub const CONFIG: Config = Config {
     dma: DmaConfig::None
 };
 
+/** Constructor Function */
 pub fn gps_setup(
     usart2: USART2,
     tx: PA2<Input>,
@@ -45,6 +47,7 @@ pub fn gps_setup(
     Neom8n::new(rx, tx)
 }
 
+/** Struct Definitions and implementations */
 #[derive(Copy, Clone)]
 pub struct FixQuality {
     fix: u8,
@@ -194,6 +197,7 @@ where
     /// This function is called in ISR context to build a GPS message
     /// Byte wise; returns true if a message is built in the buffer, false if the
     /// message is not ready
+    /** Builds the message for the GPS in the UART buffer */
     pub fn build_message(&mut self) -> bool {
 
         let byte = match nb::block!(self.rx.read()) {
@@ -239,6 +243,7 @@ where
         false
     }
 
+    /** Parses the message in the UART buffer */
     pub fn parse_message(&mut self) {
 
         // Copy for interrupt safety
@@ -253,7 +258,7 @@ where
 
     }
 
-    // UTC
+    /** Parses the UTC field into a UtcTime struct */
     fn parse_utc(utc_slice: &[u8]) -> UtcTime {
         let temp = core::str::from_utf8(utc_slice).unwrap_or("000000");
         UtcTime {
@@ -263,8 +268,10 @@ where
         }
     }
 
+    /** Converts lla in fractional minutes to simply degrees */
     fn lla_frac_mins_to_deg(deg: f64, mins: f64) -> f64 { deg + mins / 60.0 }
-    // LLA
+
+    /** Parses Longitude and Latitude Data from the message buffer */
     fn parse_lla(lat: &[u8], long: &[u8], ns: &[u8], ew: &[u8]) -> (f64, f64) {
 
         let lat_d = parse_f64(&lat[..2]);
@@ -283,13 +290,12 @@ where
         ( lat, long )
     }
 
-    // Speed over ground
+    /** Parses the speed and course over ground fields */
     fn parse_sog_cog(speed: &[u8], course: &[u8]) -> (f32, f32) {
         ( parse_f32(speed) / KNOTS_TO_MS, parse_f32(course) )
     }
 
-    /// RMC FMT : $ID,UTC,STATUS,LAT,N/S,LONG,E/W,SPEED OVER GROUND, COURSE OVER GROUND,DATE,
-    ///           MAGNETIC VARIATION,EAST/WEST,MODE,CHECKSUM,TERMINATOR
+    /** Parses the RMC message format */
     fn parse_rmc(&mut self, msg: &[u8; MAX_NMEA_0183]) {
 
         let mut sections = msg.split(|&b| b == b',');
@@ -325,6 +331,7 @@ where
 
     }
 
+    /** Parses the GGA message format */
     fn parse_gga(&mut self, msg: &[u8; MAX_NMEA_0183]) {
         let mut sections = msg.split(|&b| b == b',');
         sections.next(); // Skip header

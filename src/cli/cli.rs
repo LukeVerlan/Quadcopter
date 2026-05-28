@@ -111,7 +111,7 @@ impl QuadCli {
         }
     }
 
-
+    /** GPS defined CLI commands */
     fn gps_cmds(printing_state: &mut PrintingState, cmd: Gps, cli: &mut CliHandle<Writer, Infallible> ) {
         match cmd {
             Gps::StartPrint => printing_state.gps_printing.store(true, Ordering::Relaxed),
@@ -119,6 +119,7 @@ impl QuadCli {
         }
     }
 
+    /** Base defined CLI commands */
     fn base_cmds(cmd: Base, cli: &mut CliHandle<Writer, Infallible>) {
         match cmd {
             Base::Hello { name } => { uwrite!(cli.writer(), "Hello, {}", name.unwrap_or("World")).ok(); },

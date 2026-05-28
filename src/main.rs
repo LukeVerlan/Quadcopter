@@ -35,7 +35,6 @@ mod app {
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
     use embedded_cli::cli::{CliBuilder};
-    use rtic::Mutex;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::serial::{Rx, Tx};

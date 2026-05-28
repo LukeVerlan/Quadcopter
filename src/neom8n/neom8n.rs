@@ -8,7 +8,7 @@ use stm32f4xx_hal::serial::config::{DmaConfig, Parity, StopBits, WordLength};
 use stm32f4xx_hal::time::Bps;
 use ufmt::{uDisplay, Formatter, uwrite, uWrite};
 use stm32f4xx_hal::prelude::*;
-use super::super::util::util::{DisplayF32, DisplayF64};
+use crate::util::util::{parse_f64, parse_f32, parse_u8, DisplayFloat} ;
 
 // TODO: Comment functions on this bum code
 
@@ -93,7 +93,7 @@ impl uDisplay for UtcTime {
     where
         W: uWrite + ?Sized,
     {
-        uwrite!(f, "UTC {}:{}:{}", self.hours, self.mins, DisplayF32(self.secs))
+        uwrite!(f, "UTC {}:{}:{}", self.hours, self.mins, DisplayFloat(self.secs))
     }
 }
 
@@ -101,8 +101,8 @@ impl uDisplay for UtcTime {
 pub struct GpsData {
 
     // LLA position
-    pub lat: f32, // Degrees
-    pub long: f32, // Degrees
+    pub lat: f64, // Degrees
+    pub long: f64, // Degrees
 
     // Heading
     pub heading: f32, // Degrees
@@ -114,47 +114,41 @@ pub struct GpsData {
     pub utc: UtcTime,
     pub fix_quality: FixQuality,
 
-    // DEBUG
-    pub rmc_rx_buf_copy: [u8; MAX_NMEA_0183],
-    pub gga_rx_buf_copy: [u8; MAX_NMEA_0183],
-
 }
 
 impl GpsData {
     pub fn new() -> Self {
         GpsData {
-            lat: f32::NAN,
-            long: f32::NAN,
+            lat: f64::NAN,
+            long: f64::NAN,
             heading: f32::NAN,
             velocity: f32::NAN,
             alt: f32::NAN,
             utc: UtcTime::new(),
             fix_quality: FixQuality::new(),
-            rmc_rx_buf_copy: [0; MAX_NMEA_0183],
-            gga_rx_buf_copy: [0; MAX_NMEA_0183],
         }
     }
 
 }
 
 impl uDisplay for GpsData {
-    fn fmt<W: ufmt::uWrite + ?Sized>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error> {
+    fn fmt<W: uWrite + ?Sized>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error> {
         uwrite!(
             f,
             "+-------------------------------+ \n\
              | {}    \n\
              | {} \n\
              | \n\
-             | Lat:      {} Long:     {}    \n\
-             | Heading:  {} Velocity: {}    \n\
-             | Alt: {} \n\
-             | RMC_BUF: {} \n\
-             | GGA_BUF: {} \n\
+             | Lat: {} deg \n\
+             | Long: {} deg  \n\
+             | Heading: {} deg \n\
+             | Velocity: {} m/s   \n\
+             | Alt: {} m \n\
              +------------------------------+\n",
             self.utc, self.fix_quality,
-            DisplayF32(self.lat), DisplayF32(self.long),
-            DisplayF32(self.heading), DisplayF32(self.velocity),
-            DisplayF32(self.alt), core::str::from_utf8(&self.rmc_rx_buf_copy).unwrap(), core::str::from_utf8(&self.gga_rx_buf_copy).unwrap(),
+            DisplayFloat(self.lat), DisplayFloat(self.long),
+            DisplayFloat(self.heading), DisplayFloat(self.velocity),
+            DisplayFloat(self.alt)
         )
     }
 }
@@ -259,33 +253,25 @@ where
 
     }
 
-    fn parse_f32(field: &[u8]) -> f32 {
-        core::str::from_utf8(field).unwrap().parse::<f32>().unwrap_or(f32::NAN)
-    }
-
-    fn parse_u8(val: &[u8]) -> u8 {
-        core::str::from_utf8(val).unwrap_or("0").parse::<u8>().unwrap_or(0)
-    }
-
     // UTC
     fn parse_utc(utc_slice: &[u8]) -> UtcTime {
         let temp = core::str::from_utf8(utc_slice).unwrap_or("000000");
         UtcTime {
             hours: temp[0..2].parse().unwrap_or(0),
             mins:  temp[2..4].parse().unwrap_or(0),
-            secs:  Self::parse_f32(&utc_slice[4..]),
+            secs:  parse_f32(&utc_slice[4..]),
         }
     }
 
-    fn lla_frac_mins_to_deg(deg: f32, mins: f32) -> f32 { deg + mins / 60.0 }
+    fn lla_frac_mins_to_deg(deg: f64, mins: f64) -> f64 { deg + mins / 60.0 }
     // LLA
-    fn parse_lla(lat: &[u8], long: &[u8], ns: &[u8], ew: &[u8]) -> (f32, f32) {
+    fn parse_lla(lat: &[u8], long: &[u8], ns: &[u8], ew: &[u8]) -> (f64, f64) {
 
-        let lat_d = Self::parse_f32(&lat[..2]);
-        let lat_m = Self::parse_f32(&lat[2..]);
+        let lat_d = parse_f64(&lat[..2]);
+        let lat_m = parse_f64(&lat[2..]);
 
-        let long_d = Self::parse_f32(&long[..3]);
-        let long_m = Self::parse_f32(&long[3..]);
+        let long_d = parse_f64(&long[..3]);
+        let long_m = parse_f64(&long[3..]);
 
         let mut lat = Self::lla_frac_mins_to_deg(lat_d, lat_m);
         let mut long = Self::lla_frac_mins_to_deg(long_d, long_m);
@@ -299,7 +285,7 @@ where
 
     // Speed over ground
     fn parse_sog_cog(speed: &[u8], course: &[u8]) -> (f32, f32) {
-        ( Self::parse_f32(speed) / KNOTS_TO_MS, Self::parse_f32(course) )
+        ( parse_f32(speed) / KNOTS_TO_MS, parse_f32(course) )
     }
 
     /// RMC FMT : $ID,UTC,STATUS,LAT,N/S,LONG,E/W,SPEED OVER GROUND, COURSE OVER GROUND,DATE,
@@ -337,7 +323,6 @@ where
         self.data.heading = heading;
         self.data.velocity = velocity;
 
-        self.data.rmc_rx_buf_copy = *msg;
     }
 
     fn parse_gga(&mut self, msg: &[u8; MAX_NMEA_0183]) {
@@ -361,11 +346,11 @@ where
 
         let utc = Self::parse_utc(utc);
         let (lat, long) = Self::parse_lla(lat, long, ns, ew);
-        let fix = Self::parse_u8(fix);
-        let alt = Self::parse_f32(msl_alt);
+        let fix = parse_u8(fix);
+        let alt = parse_f32(msl_alt);
 
 
-        let satellites = Self::parse_u8(satellites);
+        let satellites = parse_u8(satellites);
 
         let fix_qual = FixQuality { fix, satellites };
 
@@ -376,7 +361,6 @@ where
         self.data.alt = alt;
         self.data.fix_quality = fix_qual;
 
-        self.data.gga_rx_buf_copy = *msg;
     }
     
     pub fn get_data(&mut self) -> GpsData { self.data }

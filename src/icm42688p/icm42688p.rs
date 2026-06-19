@@ -27,8 +27,6 @@ use stm32f4xx_hal::gpio::Input;
 use ufmt::{uDisplay, Formatter, uwrite};
 use super::super::util::util::{DisplayFloat};
 
-
-
 // spi Setup
 pub fn imu_setup(
     spi: SPI2,

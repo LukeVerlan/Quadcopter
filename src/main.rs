@@ -3,6 +3,7 @@
 
 pub mod cli;
 pub mod util;
+pub mod x4r;
 
 extern crate alloc;
 

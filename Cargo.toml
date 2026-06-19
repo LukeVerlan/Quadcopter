@@ -23,6 +23,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 cortex-m = "0.7.7"
 ufmt_float = "0.2.0"
 ryu = "1.0.23"
+embedded-hal-nb = "1.0.0"
 
 [package.metadata.dfu]
 chip = "STM32F411CEUx"

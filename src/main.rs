@@ -7,8 +7,8 @@ pub mod util;
 
 extern crate alloc;
 
-use defmt_rtt as _;
 use panic_probe as _;
+use defmt_rtt as _;      // transport backend
 
 use rtic::app;
 use rtic_monotonics::systick::prelude::*;
@@ -21,8 +21,6 @@ const HEAP_SIZE: usize = 4096;
 static HEAP: Heap = Heap::empty();
 
 systick_monotonic!(Mono, 10_000);
-
-defmt::timestamp!("{=u32}", { 0u32 });
 
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
 mod app {
@@ -40,7 +38,7 @@ mod app {
         PB12
     };
     use stm32f4xx_hal::pac::*;
-    use stm32f4xx_hal::spi::{Spi, Polarity, Phase};
+    use stm32f4xx_hal::spi::{Spi};
 
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
@@ -85,6 +83,8 @@ mod app {
         // delay clock startup
         Mono::start(cx.core.SYST, clocks.sysclk().to_Hz());
 
+        defmt::println!("BOOT");
+
         // CTRL CODE HERE
 
         // Gpio pins
@@ -117,7 +117,7 @@ mod app {
         let (usb_dev, writer) = unsafe {
             USB_BUS = Some(UsbBus::new(usb, &mut EP_MEMORY));
             let usb_bus_ref = USB_BUS.as_ref().unwrap();
-            let mut ser = SerialPort::new(usb_bus_ref);
+            let ser = SerialPort::new(usb_bus_ref);
             let usb_dev = UsbDeviceBuilder::new(usb_bus_ref, UsbVidPid(0x16c0, 0x27dd))
                 .device_class(usbd_serial::USB_CLASS_CDC)
                 .build();
@@ -134,7 +134,7 @@ mod app {
             (COMMAND_BUFFER.as_mut(), HISTORY_BUFFER.as_mut())
         };
 
-        let mut cli = CliBuilder::default()
+        let cli = CliBuilder::default()
             .writer(writer)
             .command_buffer(command_buffer)
             .history_buffer(history_buffer)
@@ -148,6 +148,7 @@ mod app {
         // // -------------------------------------------
 
         blink::spawn().unwrap();
+        imu_update::spawn().unwrap();
 
         (Shared {
             imu_data
@@ -212,7 +213,7 @@ mod app {
                 *imu_data = imu.get_data();
             });
 
-            Mono::delay(300.micros()).await; // 4KHz res
+            Mono::delay(250.micros()).await;
         }
     }
 }

@@ -25,7 +25,7 @@ use stm32f4xx_hal::rcc::Clocks;
 use stm32f4xx_hal::spi::{Mode, Phase, Polarity, Spi};
 use stm32f4xx_hal::gpio::Input;
 use ufmt::{uDisplay, Formatter, uwrite};
-use super::super::util::util::{DisplayF32};
+use super::super::util::util::{DisplayFloat};
 
 
 
@@ -44,12 +44,12 @@ pub fn imu_setup(
     let sck = sck.into_alternate::<5>();
     let miso = miso.into_alternate::<5>();
     let mosi = mosi.into_alternate::<5>();
-    
+
     // Spi peripheral configuration
     let spi = spi.spi(
         (sck, miso, mosi),
-        Mode { polarity: Polarity::IdleHigh, phase: Phase::CaptureOnFirstTransition },
-        10_u32.MHz(),
+        Mode { polarity: Polarity::IdleLow, phase: Phase::CaptureOnFirstTransition },
+        12.MHz(),
         clocks
     );
 
@@ -85,14 +85,14 @@ impl uDisplay for IMUData {
         uwrite!(f,
             "+--------------------------\n\
              | Accel                    \n\
-             | X: {} Y:{} Z:{}          \n\
+             | X: {} Y: {} Z: {}        \n\
              |                          \n\
              | Gyro                     \n\
              | X: {} Y: {} Z: {}        \n\
-             +-----------------------------\n",
-            DisplayF32(self.accel.accel_x), DisplayF32(self.accel.accel_y),
-            DisplayF32(self.accel.accel_z), DisplayF32(self.gyro.gyro_x),
-            DisplayF32(self.gyro.gyro_y), DisplayF32(self.gyro.gyro_z)
+             +--------------------------\n",
+            DisplayFloat(self.accel.accel_x), DisplayFloat(self.accel.accel_y),
+            DisplayFloat(self.accel.accel_z), DisplayFloat(self.gyro.gyro_x),
+            DisplayFloat(self.gyro.gyro_y), DisplayFloat(self.gyro.gyro_z)
         )
     }
 }
@@ -171,7 +171,7 @@ impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
     pub async fn update(&mut self) -> Result<(), ImuError<SPI::Error>> {
 
         // Grab the data
-        let starting_addr: [u8; 1]  = [DATA_READ_START_REG];
+        let starting_addr: [u8; 1]  = [DATA_READ_START_REG | 0x80];
 
         // Burst read the data
         let mut buf: [u8; DATA_READ_LEN] = [0; DATA_READ_LEN];
@@ -185,23 +185,54 @@ impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
 
         // Update the struct values
         self.data.accel = Accel {
-            accel_x: (((buf[0] as i16) << 8 | buf[1] as i16) as f32) * ACCEL_SENS_FACTOR,
-            accel_y: (((buf[2] as i16) << 8 | buf[3] as i16) as f32) * ACCEL_SENS_FACTOR,
-            accel_z: (((buf[4] as i16) << 8 | buf[5] as i16) as f32) * ACCEL_SENS_FACTOR,
+            accel_x: (((buf[0] as u16) << 8 | buf[1] as u16) as i16 as f32) * ACCEL_SENS_FACTOR,
+            accel_y: (((buf[2] as  u16) << 8 | buf[3] as  u16) as i16 as f32) * ACCEL_SENS_FACTOR,
+            accel_z: (((buf[4] as  u16) << 8 | buf[5] as  u16) as i16 as f32) * ACCEL_SENS_FACTOR,
         };
 
         self.data.gyro = Gyro {
-            gyro_x: (((buf[6] as i16) << 8 | buf[7] as i16) as f32) * GYRO_SENS_FACTOR,
-            gyro_y: (((buf[8] as i16) << 8 | buf[9] as i16) as f32) * GYRO_SENS_FACTOR,
-            gyro_z: (((buf[10] as i16) << 8 | buf[11] as i16) as f32) * GYRO_SENS_FACTOR,
+            gyro_x: (((buf[6] as  u16) << 8 | buf[7] as u16) as i16 as f32) * GYRO_SENS_FACTOR,
+            gyro_y: (((buf[8] as  u16) << 8 | buf[9] as  u16) as i16 as f32) * GYRO_SENS_FACTOR,
+            gyro_z: (((buf[10] as  u16) << 8 | buf[11] as  u16) as i16 as f32) * GYRO_SENS_FACTOR,
         };
 
         if INTERRUPTS_ENABLED {
             // Clean the flags register
-            let flags = self.spi_read_reg(
+            let _flags = self.spi_read_reg(
                 Bank0::IntStatus as u8
             ).await?;
         }
+
+
+        // For debug printing
+        macro_rules! split_float {
+            ($val:expr) => {{
+                let sign = if $val < 0.0 { "-" } else { "" };
+                let abs_val = $val.abs();
+                let int_part = abs_val as i32;
+                let frac_part = ((abs_val - int_part as f32) * 1000.0) as u32;
+                (sign, int_part, frac_part)
+            }};
+        }
+
+        // Extract the safe parts
+        let (ax_s, ax_i, ax_f) = split_float!(self.data.accel.accel_x);
+        let (ay_s, ay_i, ay_f) = split_float!(self.data.accel.accel_y);
+        let (az_s, az_i, az_f) = split_float!(self.data.accel.accel_z);
+        let (gx_s, gx_i, gx_f) = split_float!(self.data.gyro.gyro_x);
+        let (gy_s, gy_i, gy_f) = split_float!(self.data.gyro.gyro_y);
+        let (gz_s, gz_i, gz_f) = split_float!(self.data.gyro.gyro_z);
+
+        // Log with the explicit sign slot '{=str}' directly in front of the integer block
+        defmt::println!(
+            "Accel X: {=str}{=i32}.{=u32:03} Y: {=str}{=i32}.{=u32:03} Z: {=str}{=i32}.{=u32:03} Gyro X: {=str}{=i32}.{=u32:03} Y: {=str}{=i32}.{=u32:03} Z: {=str}{=i32}.{=u32:03}",
+            ax_s, ax_i, ax_f,
+            ay_s, ay_i, ay_f,
+            az_s, az_i, az_f,
+            gx_s, gx_i, gx_f,
+            gy_s, gy_i, gy_f,
+            gz_s, gz_i, gz_f
+        );
 
         Ok(())
     }
@@ -227,15 +258,15 @@ impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
     }
 
     async fn spi_write_reg(&mut self, addr: u8, data: u8) -> Result<(), ImuError<SPI::Error>> {
-        let buf: [u8; 2] = [addr & (0b0 << 7), data];
-        self.spi.write(&buf)?;
+        let mut buf: [u8; 2] = [addr, data];
+        self.spi.transfer_in_place(&mut buf)?;
         Ok(())
     }
 
     async fn spi_read_reg(&mut self, addr: u8) -> Result<u8, SPI::Error> {
-        let mut buf: [u8; 1] = [addr & (0b1 << 7)];
+        let mut buf: [u8; 2] = [addr | (0b1 << 7), 0];
         self.spi.transfer_in_place(&mut buf)?; // writes and then overwrites the buffer
-        Ok(buf[0]) // return the buffered value
+        Ok(buf[1]) // return the buffered value
     }
 
     pub async fn startup(&mut self, delay: &mut impl DelayNs) -> Result<(), ImuError<SPI::Error>> {
@@ -244,13 +275,11 @@ impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
         delay.delay_ms(100).await;
 
         // Verify the Who am I
-        let who_am_i = self.spi_read_reg(Bank0::WhoAmI as u8).await?;
-        if who_am_i != WHO_AM_I {
-            return Err(ImuError::WhoAmI);
-        }
+        let _who_am_i = self.spi_read_reg(Bank0::WhoAmI as u8).await?;
 
-        // Reset for clarity
-        self.soft_reset().await?;
+        delay.delay_ms(100).await;
+
+        self.start_sensors().await?;
 
         delay.delay_ms(100).await;
 
@@ -266,7 +295,7 @@ impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
 
         self.spi_write_reg(
             Bank0::PwrMGMT0 as u8,
-            (GYRO_PWR_CMD << 2) | ACCEL_PWR_CMD
+            (ACTIVE_CMD << 4) |(GYRO_PWR_CMD << 2) | ACCEL_PWR_CMD
         ).await?;
 
         Ok(())
@@ -277,11 +306,6 @@ impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
         self.spi_write_reg(
             Bank0::DeviceConfig as u8,
             0b1
-        ).await?;
-
-        // Clear the native interrupt flag by reading
-        self.spi_read_reg(
-            Bank0::IntStatus as u8
         ).await?;
 
         Ok(())

@@ -2,7 +2,6 @@
 #![no_main]
 
 pub mod cli;
-pub mod icm42688p;
 pub mod util;
 
 extern crate alloc;
@@ -25,20 +24,13 @@ systick_monotonic!(Mono, 10_000);
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
 mod app {
     use super::*;
-    use super::icm42688p::icm42688p::{
-        Icm42688p, IMUData, imu_setup
-    };
 
     use super::cli::cli::{ Writer };
     use stm32f4xx_hal::prelude::*;
 
-    use embedded_hal_bus::spi::ExclusiveDevice;
     use stm32f4xx_hal::gpio::{
         PC13, Output, PushPull,     // LED
-        PB12
     };
-    use stm32f4xx_hal::pac::*;
-    use stm32f4xx_hal::spi::{Spi};
 
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
@@ -47,7 +39,6 @@ mod app {
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use super::cli::cli::QuadCli;
-    use stm32f4xx_hal::timer::DelayUs;
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
@@ -55,7 +46,7 @@ mod app {
 
     #[shared]
     struct Shared {
-        imu_data: IMUData
+
     }
 
     #[local]
@@ -64,7 +55,6 @@ mod app {
         cli: QuadCli,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
 
-        imu:  Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, DelayUs<TIM2>>>,
     }
 
     #[init]
@@ -94,17 +84,6 @@ mod app {
 
         // Led
         let led = gpioc.pc13.into_push_pull_output();
-
-        // IMU
-        let (imu, imu_data) = imu_setup(
-            dp.SPI2,       // SPI instance
-            gpiob.pb12,    // CS
-            gpiob.pb13,    // SCK
-            gpiob.pb14,    // MISO
-            gpiob.pb15,    // MOSI
-            &clocks,       // Clock reference
-            dp.TIM2.delay_us(&clocks)
-        );
 
         // CLI SETUP
 
@@ -148,33 +127,26 @@ mod app {
         // // -------------------------------------------
 
         blink::spawn().unwrap();
-        imu_update::spawn().unwrap();
 
         (Shared {
-            imu_data
+
         }, Local {
-            led, cli, usb_dev, imu
+            led, cli, usb_dev
         })
     }
 
     // Try CLI here
-    #[idle(local = [cli, usb_dev], shared=[imu_data])]
+    #[idle(local = [cli, usb_dev])]
     fn idle(mut _cx: idle::Context) -> ! {
-        let mut cli = _cx.local.cli;
+        let cli = _cx.local.cli;
         let usb_dev = _cx.local.usb_dev;
         let ser = unsafe { SER.as_mut().unwrap() };
-        let mut imu = _cx.shared.imu_data;
 
         ser.write_all(b"Quadcopter Online\n").unwrap();
 
         // Write base cli
         loop {
 
-            let imu_data = imu.lock(|imu| { imu.clone() });
-
-            cli.print_state(
-                &imu_data, ser, Mono::now().ticks()
-            );
 
             if usb_dev.poll(&mut [ser]) {
 
@@ -199,21 +171,4 @@ mod app {
         }
     }
 
-    #[task(local = [imu], shared = [imu_data], priority = 2)]
-    async fn imu_update(mut _cx: imu_update::Context) {
-        let imu = _cx.local.imu;
-        let mut imu_data = _cx.shared.imu_data;
-        imu.startup(&mut Mono).await.unwrap();
-        loop {
-            // Update vals
-            imu.update().await.unwrap();
-
-            // Safely clone the data from the imu
-            imu_data.lock(|imu_data| {
-                *imu_data = imu.get_data();
-            });
-
-            Mono::delay(250.micros()).await;
-        }
-    }
 }

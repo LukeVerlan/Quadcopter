@@ -1,5 +1,4 @@
 use core::sync::atomic::{ Ordering};
-use super::super::icm42688p::icm42688p::IMUData;
 use embedded_cli::{Command, CommandGroup};
 use stm32f4xx_hal::otg_fs::{USB, UsbBus};
 use usbd_serial::SerialPort;
@@ -63,20 +62,10 @@ pub enum Base<'a> {
     /// Exit cli
     Exit,
 }
-#[derive(Command)]
-#[command(help_title= "Imu Functions")]
-pub enum Imu {
-    /// Imu Start Printing
-    ImuStartPrint,
-
-    /// Imu stop Printing
-    ImuStopPrint
-}
 
 #[derive(CommandGroup)]
 enum Group<'a> {
     Base(Base<'a>),
-    Imu(Imu),
 }
 
 impl QuadCli {
@@ -93,7 +82,6 @@ impl QuadCli {
 
     pub fn print_state(
         &mut self,
-        imu_data: &IMUData,
         ser: *mut SerialPort<'static, UsbBus<USB>>,
         now: u32
     ) {
@@ -105,19 +93,9 @@ impl QuadCli {
         }
 
         self.last_print = Some(now);
-
-        if self.printing_state.imu_printing.load(Ordering::Relaxed) {
-            uwriteln!(w, "{}", imu_data).ok();
-        }
+        
     }
-
-
-    fn imu_cmds(printing_state: &mut PrintingState, cmd: Imu, cli: &mut CliHandle<Writer, Infallible> ) {
-        match cmd {
-            Imu::ImuStartPrint => printing_state.imu_printing.store(true, Ordering::Relaxed),
-            Imu::ImuStopPrint => printing_state.imu_printing.store(false, Ordering::Relaxed),
-        }
-    }
+    
 
     fn base_cmds(cmd: Base, cli: &mut CliHandle<Writer, Infallible>) {
         match cmd {
@@ -133,7 +111,6 @@ impl QuadCli {
             &mut Group::processor(|cli, command| {
                 match command {
                     Group::Base(cmd) => Self::base_cmds(cmd, cli),
-                    Group::Imu(cmd) => Self::imu_cmds(printing_state, cmd, cli),
                 }
                 Ok(())
             }),

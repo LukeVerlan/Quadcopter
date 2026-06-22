@@ -59,4 +59,8 @@
 | USBDm - | PA11       |
 | USBDp + | PA12       |
 
+## Telemetry 
+| Output | Pin Number |
+|-----|------------|
+| RX  | PA10       |
 

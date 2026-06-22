@@ -17,6 +17,7 @@ dependencies = [
  "embedded-hal-bus",
  "embedded-hal-nb",
  "embedded-io",
+ "nb 1.1.0",
  "panic-probe",
  "rtic",
  "rtic-monotonics",

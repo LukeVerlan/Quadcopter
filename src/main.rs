@@ -25,20 +25,21 @@ systick_monotonic!(Mono, 10_000);
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
 mod app {
     use super::*;
-
     use super::cli::cli::{ Writer };
     use stm32f4xx_hal::prelude::*;
 
-    use stm32f4xx_hal::gpio::{
-        PC13, Output, PushPull,     // LED
-    };
-
+    use stm32f4xx_hal::gpio::{ PC13, Output, PushPull };
+    use stm32f4xx_hal::serial::config::{DmaConfig, Parity, StopBits, WordLength};
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
+    use stm32f4xx_hal::pac::{USART1};
     use usbd_serial::SerialPort;
+    use stm32f4xx_hal::time::Bps;
     use embedded_cli::cli::{CliBuilder};
     use embedded_io::Write;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
+    use stm32f4xx_hal::serial::{Config, Tx, Rx, Serial};
     use usb_device::bus::UsbBusAllocator;
+    use crate::x4r::x4r::{X4rData, X4r};
     use super::cli::cli::QuadCli;
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
@@ -47,19 +48,26 @@ mod app {
 
     #[shared]
     struct Shared {
-
+        x4r_data: X4rData
     }
 
     #[local]
     struct Local {
+
+        // Onboard led
         led: PC13<Output<PushPull>>,
+
+        // Cli
         cli: QuadCli,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
 
+        // Telemetry
+        x4r: X4r<Rx<USART1>>
     }
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local) {
+
         let dp = cx.device;
 
         // Clocks
@@ -67,26 +75,22 @@ mod app {
         let clocks = rcc.cfgr.use_hse(25.MHz()).sysclk(96.MHz()).freeze();
 
         // Init the heap
-        unsafe {
-            embedded_alloc::init!(HEAP, HEAP_SIZE);
-        }
+        unsafe { embedded_alloc::init!(HEAP, HEAP_SIZE); }
 
         // delay clock startup
         Mono::start(cx.core.SYST, clocks.sysclk().to_Hz());
 
         defmt::println!("BOOT");
 
-        // CTRL CODE HERE
-
-        // Gpio pins
+        // GPIO pins
         let gpioa = dp.GPIOA.split();
-        let gpiob = dp.GPIOB.split();
         let gpioc = dp.GPIOC.split();
 
         // Led
         let led = gpioc.pc13.into_push_pull_output();
 
         // CLI SETUP
+        // ---------------------------------------------------------------------
 
         let usb = USB::new(
             (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
@@ -98,9 +102,13 @@ mod app {
             USB_BUS = Some(UsbBus::new(usb, &mut EP_MEMORY));
             let usb_bus_ref = USB_BUS.as_ref().unwrap();
             let ser = SerialPort::new(usb_bus_ref);
-            let usb_dev = UsbDeviceBuilder::new(usb_bus_ref, UsbVidPid(0x16c0, 0x27dd))
+
+            let usb_dev = UsbDeviceBuilder::new(
+                usb_bus_ref,
+                UsbVidPid(0x16c0, 0x27dd))
                 .device_class(usbd_serial::USB_CLASS_CDC)
                 .build();
+
             SER = Some(ser);
             let writer = Writer { ser: &raw mut *SER.as_mut().unwrap() };
             (usb_dev, writer)
@@ -125,20 +133,49 @@ mod app {
             cli
         );
 
-        // // -------------------------------------------
+        // -------------------------------------------
+
+        // Telemetry setup
+        // ------------------------------------------
+
+        let config = Config {
+            baudrate: Bps(100_000),
+            wordlength: WordLength::DataBits8,
+            parity: Parity::ParityEven,
+            stopbits: StopBits::STOP2,
+            dma: DmaConfig::None
+        };
+
+        let rx_pin = gpioa.pa10.into_alternate();
+        let tx_pin = gpioa.pa9.into_alternate();
+
+        let uart = Serial::<USART1, u8>::new(
+            dp.USART1,
+            (tx_pin, rx_pin),
+            config,
+            &clocks
+        );
+
+        let (_tx, rx) = uart.unwrap().split();
+
+        let x4r = X4r::new(rx);
+        let x4r_data = x4r.get_data();
+
+        // ---------------------------------------------
 
         blink::spawn().unwrap();
 
         (Shared {
-
+            x4r_data
         }, Local {
-            led, cli, usb_dev
+            led, cli, usb_dev, x4r
         })
     }
 
     // Try CLI here
     #[idle(local = [cli, usb_dev])]
     fn idle(mut _cx: idle::Context) -> ! {
+
         let cli = _cx.local.cli;
         let usb_dev = _cx.local.usb_dev;
         let ser = unsafe { SER.as_mut().unwrap() };
@@ -147,7 +184,6 @@ mod app {
 
         // Write base cli
         loop {
-
 
             if usb_dev.poll(&mut [ser]) {
 
@@ -161,6 +197,7 @@ mod app {
                 }
             }
         }
+
     }
 
     #[task(local=[led], priority = 1)]
@@ -168,8 +205,16 @@ mod app {
         let led = _cx.local.led;
         loop {
             led.toggle();
-            Mono::delay(1000.millis()).await; // Wait 500 milliseconds
+            Mono::delay(1_000.millis()).await; // Wait 500 milliseconds
         }
     }
+
+    #[task(binds = USART1, local=[x4r])]
+    fn rx_telemetry_message(cx: rx_telemetry_message::Context) {
+        let x4r = cx.local.x4r;
+
+    }
+
+    
 
 }

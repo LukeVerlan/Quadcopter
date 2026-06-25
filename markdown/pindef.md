@@ -2,7 +2,7 @@
 
 ## SPI 
 
-### ICM42688P
+### ICM42688P -- SPI2 -- TIM2
 | Output | Pin Number |
 |--------|------------|
 | CS     | PB12       |
@@ -29,7 +29,7 @@
 
 ## USART
 
-### NEO-M8N -- USART2
+### NEO-M8N
 
 | Output | Pin Number |
 |--------|------------|

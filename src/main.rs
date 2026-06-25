@@ -3,12 +3,14 @@
 
 pub mod cli;
 pub mod neom8n;
+pub mod icm42688p;
 pub mod util;
 
 extern crate alloc;
 
-use defmt_rtt as _;
+
 use panic_probe as _;
+use defmt_rtt as _;      // transport backend
 
 use rtic::app;
 use rtic_monotonics::systick::prelude::*;
@@ -22,27 +24,28 @@ static HEAP: Heap = Heap::empty();
 
 systick_monotonic!(Mono, 10_000);
 
-defmt::timestamp!("{=u32}", { 0u32 });
-
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1, EXTI2])]
 mod app {
     use super::*;
+    use super::icm42688p::icm42688p::{
+        Icm42688p, IMUData, imu_setup
+    };
+
     use super::cli::cli::{QuadCli, Writer};
     use stm32f4xx_hal::prelude::*;
-    use stm32f4xx_hal::gpio::{PC13, Output, PushPull};
-
-    // CLI
+    use stm32f4xx_hal::gpio::{PC13, Output, PushPull, PB12};
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
     use embedded_cli::cli::{CliBuilder};
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::serial::{Rx, Tx};
-
-    // GPS
+    use embedded_hal_bus::spi::ExclusiveDevice;
+    use stm32f4xx_hal::pac::*;
+    use stm32f4xx_hal::spi::{Spi};
     use super::neom8n::neom8n::{Neom8n, GpsData, gps_setup};
-
     use stm32f4xx_hal::pac::USART2;
+    use stm32f4xx_hal::timer::DelayUs;
 
     // CLI
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
@@ -52,8 +55,7 @@ mod app {
 
     #[shared]
     struct Shared {
-
-        // GPS
+        imu_data: IMUData,
         gps_data: GpsData,
         gps: Neom8n<Rx<USART2>, Tx<USART2>>
 
@@ -61,13 +63,11 @@ mod app {
 
     #[local]
     struct Local {
-
-        // LED
         led: PC13<Output<PushPull>>,
-
-        // CLI
-        quad_cli: QuadCli,
+        cli: QuadCli,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
+
+        imu:  Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, DelayUs<TIM2>>>,
     }
 
     #[init]
@@ -86,14 +86,36 @@ mod app {
         // delay clock startup
         Mono::start(cx.core.SYST, clocks.sysclk().to_Hz());
 
+        defmt::println!("BOOT");
+
         // CTRL CODE HERE
 
         // Gpio pins
         let gpioa = dp.GPIOA.split();
+        let gpiob = dp.GPIOB.split();
         let gpioc = dp.GPIOC.split();
 
         // Led
         let led = gpioc.pc13.into_push_pull_output();
+
+        // IMU
+        let (imu, imu_data) = imu_setup(
+            dp.SPI2,       // SPI instance
+            gpiob.pb12,    // CS
+            gpiob.pb13,    // SCK
+            gpiob.pb14,    // MISO
+            gpiob.pb15,    // MOSI
+            &clocks,       // Clock reference
+            dp.TIM2.delay_us(&clocks)
+        );
+
+        // GPS
+        let mut gps = gps_setup(
+            dp.USART2,
+            gpioa.pa2,
+            gpioa.pa3,
+            &clocks
+        );
 
         // CLI SETUP
 
@@ -103,7 +125,6 @@ mod app {
             &clocks
         );
 
-        // USB setup
         let (usb_dev, writer) = unsafe {
             USB_BUS = Some(UsbBus::new(usb, &mut EP_MEMORY));
             let usb_bus_ref = USB_BUS.as_ref().unwrap();
@@ -116,7 +137,6 @@ mod app {
             (usb_dev, writer)
         };
 
-        // CLI buffers
         let (command_buffer, history_buffer) = unsafe {
             static mut COMMAND_BUFFER: [u8; 40] = [0; 40];
             static mut HISTORY_BUFFER: [u8; 41] = [0; 41];
@@ -125,7 +145,6 @@ mod app {
             (COMMAND_BUFFER.as_mut(), HISTORY_BUFFER.as_mut())
         };
 
-        // Build the CLI object
         let cli = CliBuilder::default()
             .writer(writer)
             .command_buffer(command_buffer)
@@ -133,49 +152,46 @@ mod app {
             .build()
             .expect("Cli failed to init");
 
-        // Pass the cli object to our cli
-        let quad_cli = QuadCli::new(cli);
-
-        //  -------------------------------------------
-
-        // GPS SETUP
-        
-        let mut gps = gps_setup(
-            dp.USART2,
-            gpioa.pa2,
-            gpioa.pa3,
-            &clocks
+        let cli = QuadCli::new(
+            cli
         );
+
+        // // -------------------------------------------
+
+        imu_update::spawn().unwrap();
+        // GPS SETUP
 
         let gps_data = gps.get_data();
 
         (Shared {
-            gps_data, gps
+            imu_data, gps_data, gps
         }, Local {
-            led, quad_cli, usb_dev,
+            led, cli, usb_dev, imu
         })
     }
 
-    #[idle(local = [quad_cli, usb_dev], shared = [gps_data])]
+    // Try CLI here
+    #[idle(local = [cli, usb_dev], shared=[imu_data, gps_data])]
     fn idle(mut _cx: idle::Context) -> ! {
-        let cli = _cx.local.quad_cli;
+        let mut cli = _cx.local.cli;
         let usb_dev = _cx.local.usb_dev;
         let ser = unsafe { SER.as_mut().unwrap() };
-        let mut gps_data = _cx.shared.gps_data;
+        let mut imu = _cx.shared.imu_data;
+        let mut gps = _cx.shared.gps_data;
 
-        ser.write(b"Quadcopter online\n").unwrap();
+        ser.write(b"Quadcopter Online\n").unwrap();
 
         // Write base cli
         loop {
 
-            // Copy for thread safety
-            let gps_data_copy = gps_data.lock(|gps_data| {
-                *gps_data
-            });
+            let imu_data = imu.lock(|imu| { imu.clone() });
+            let gps_data = gps.lock(|gps| { gps.clone() });
 
-            cli.print_state(&gps_data_copy, ser, Mono::now().ticks());
 
-            // Taking in commands
+            cli.print_state(
+                &imu_data, &gps_data, ser, Mono::now().ticks()
+            );
+
             if usb_dev.poll(&mut [ser]) {
 
                 // 64 serial characters
@@ -184,9 +200,9 @@ mod app {
                     for byte in &buf[0..count] {
                         cli.process(*byte);
                     }
+
                 }
             }
-
         }
     }
 
@@ -217,4 +233,22 @@ mod app {
         });
     }
 
+
+    #[task(local = [imu], shared = [imu_data], priority = 2)]
+    async fn imu_update(mut _cx: imu_update::Context) {
+        let imu = _cx.local.imu;
+        let mut imu_data = _cx.shared.imu_data;
+        imu.startup(&mut Mono).await.unwrap();
+        loop {
+            // Update vals
+            imu.update().await.unwrap();
+
+            // Safely clone the data from the imu
+            imu_data.lock(|imu_data| {
+                *imu_data = imu.get_data();
+            });
+
+            Mono::delay(250.micros()).await;
+        }
+    }
 }

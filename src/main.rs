@@ -2,6 +2,7 @@
 #![no_main]
 
 pub mod cli;
+pub mod neom8n;
 pub mod util;
 
 extern crate alloc;
@@ -23,7 +24,7 @@ systick_monotonic!(Mono, 10_000);
 
 defmt::timestamp!("{=u32}", { 0u32 });
 
-#[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
+#[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1, EXTI2])]
 mod app {
     use super::*;
     use super::cli::cli::{QuadCli, Writer};
@@ -38,13 +39,24 @@ mod app {
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::serial::{Rx, Tx};
 
+    // GPS
+    use super::neom8n::neom8n::{Neom8n, GpsData, gps_setup};
 
+    use stm32f4xx_hal::pac::USART2;
+
+    // CLI
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
     static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // 4096 bytes of memory for the serial port
 
+
     #[shared]
     struct Shared {
+
+        // GPS
+        gps_data: GpsData,
+        gps: Neom8n<Rx<USART2>, Tx<USART2>>
+
     }
 
     #[local]
@@ -126,23 +138,44 @@ mod app {
 
         //  -------------------------------------------
 
+        // GPS SETUP
+        
+        let mut gps = gps_setup(
+            dp.USART2,
+            gpioa.pa2,
+            gpioa.pa3,
+            &clocks
+        );
+
+        let gps_data = gps.get_data();
+
         (Shared {
+            gps_data, gps
         }, Local {
             led, quad_cli, usb_dev,
         })
     }
 
-    #[idle(local = [quad_cli, usb_dev])]
+    #[idle(local = [quad_cli, usb_dev], shared = [gps_data])]
     fn idle(mut _cx: idle::Context) -> ! {
         let cli = _cx.local.quad_cli;
         let usb_dev = _cx.local.usb_dev;
         let ser = unsafe { SER.as_mut().unwrap() };
+        let mut gps_data = _cx.shared.gps_data;
 
         ser.write(b"Quadcopter online\n").unwrap();
 
         // Write base cli
         loop {
 
+            // Copy for thread safety
+            let gps_data_copy = gps_data.lock(|gps_data| {
+                *gps_data
+            });
+
+            cli.print_state(&gps_data_copy, ser, Mono::now().ticks());
+
+            // Taking in commands
             if usb_dev.poll(&mut [ser]) {
 
                 // 64 serial characters
@@ -153,15 +186,35 @@ mod app {
                     }
                 }
             }
+
         }
     }
 
-    #[task(local=[led], priority = 1)]
-    async fn blink(_cx: blink::Context) {
+    // GPS UART RX interrupt handler
+    #[task(binds = USART2, shared=[gps], local=[led])]
+    fn receive_gps_message(_cx: receive_gps_message::Context) {
         let led = _cx.local.led;
-        loop {
-            led.toggle();
-            Mono::delay(1000.millis()).await; // Wait 500 milliseconds
-        }
+        let mut gps = _cx.shared.gps;
+        gps.lock(|gps| {
+                if gps.build_message() { led.toggle(); parse_gps_message::spawn().unwrap(); }
+        });
+
     }
+
+    #[task(shared=[gps, gps_data], priority = 2)]
+    async fn parse_gps_message(_cx: parse_gps_message::Context) {
+
+        let mut gps = _cx.shared.gps;
+        let mut gps_data = _cx.shared.gps_data;
+
+        let gps_data_clone = gps.lock(|gps| {
+            gps.parse_message();
+            gps.get_data()
+        });
+
+        gps_data.lock(|gps_data| {
+            *gps_data = gps_data_clone
+        });
+    }
+
 }

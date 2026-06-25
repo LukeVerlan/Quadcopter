@@ -1,9 +1,13 @@
-pub use embedded_cli::{Command, CommandGroup};
+use core::sync::atomic::{ Ordering};
+use embedded_cli::{Command, CommandGroup};
 use stm32f4xx_hal::otg_fs::{USB, UsbBus};
 use usbd_serial::SerialPort;
 use core::convert::Infallible;
 use embedded_cli::cli::{Cli, CliHandle};
-use ufmt::{uwrite};
+use rtic::export::atomic::AtomicBool;
+use ufmt::{uwrite, uwriteln};
+use super::super::neom8n::neom8n::GpsData;
+
 
 // Serial port writer
 pub struct Writer {
@@ -40,13 +44,22 @@ impl embedded_io::Write for Writer {
 }
 
 struct PrintingState {
-
+    gps_printing: AtomicBool
 }
 
 pub struct QuadCli {
     cli: Cli<Writer, Infallible, &'static mut [u8], &'static mut [u8]>,
     printing_state: PrintingState,
     last_print: Option<u32>
+}
+
+#[derive(Command)]
+#[command(help_title = "Gps Functions")]
+pub enum Gps {
+    /// Start printing current GPS data
+    StartPrint,
+    /// Stop printing GPS data
+    StopPrint,
 }
 
 #[derive(Command)]
@@ -64,6 +77,7 @@ pub enum Base<'a> {
 #[derive(CommandGroup)]
 enum Group<'a> {
     Base(Base<'a>),
+    Gps(Gps),
 }
 
 impl QuadCli {
@@ -72,6 +86,7 @@ impl QuadCli {
         QuadCli {
             cli,
             printing_state: PrintingState {
+                gps_printing: AtomicBool::new(false),
             },
             last_print: Some(0),
         }
@@ -79,6 +94,7 @@ impl QuadCli {
 
     pub fn print_state(
         &mut self,
+        gps_data: &GpsData,
         ser: *mut SerialPort<'static, UsbBus<USB>>,
         now: u32
     ) {
@@ -91,6 +107,17 @@ impl QuadCli {
 
         self.last_print = Some(now);
 
+        if self.printing_state.gps_printing.load(Ordering::Relaxed) {
+            uwriteln!(w, "{}", gps_data).ok();
+        }
+    }
+
+    /** GPS defined CLI commands */
+    fn gps_cmds(printing_state: &mut PrintingState, cmd: Gps, cli: &mut CliHandle<Writer, Infallible> ) {
+        match cmd {
+            Gps::StartPrint => printing_state.gps_printing.store(true, Ordering::Relaxed),
+            Gps::StopPrint => printing_state.gps_printing.store(false, Ordering::Relaxed),
+        }
     }
 
     /** Base defined CLI commands */
@@ -108,6 +135,7 @@ impl QuadCli {
             &mut Group::processor(|cli, command| {
                 match command {
                     Group::Base(cmd) => Self::base_cmds(cmd, cli),
+                    Group::Gps(cmd) => Self::gps_cmds(printing_state, cmd, cli),
                 }
                 Ok(())
             }),

@@ -8,7 +8,6 @@ pub mod util;
 
 extern crate alloc;
 
-
 use panic_probe as _;
 use defmt_rtt as _;      // transport backend
 
@@ -217,7 +216,7 @@ mod app {
 
     }
 
-    #[task(shared=[gps, gps_data], priority = 2)]
+    #[task(shared=[gps, gps_data], priority = 1)]
     async fn parse_gps_message(_cx: parse_gps_message::Context) {
 
         let mut gps = _cx.shared.gps;

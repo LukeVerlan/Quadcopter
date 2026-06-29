@@ -30,6 +30,9 @@ Then, after binding the transceiver, this was the final result
 
 ## Transceiver Channel Binds 
 
+# Sent Value Range 
+(172 = -100%, 992 = 0%, 1811 = 100%)
+
 | Channel # | Output     |
 | --------- | ---------- |
 | 1         | Throttle   |

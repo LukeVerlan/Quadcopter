@@ -28,6 +28,15 @@ Then, after binding the transceiver, this was the final result
 
 <img width="1638" height="511" alt="image" src="https://github.com/user-attachments/assets/881e5dcd-90b6-4920-90c6-38e007fad8e4" />
 
+## Transceiver Channel Binds 
+
+| Channel # | Output     |
+| --------- | ---------- |
+| 1         | Throttle   |
+| 2         | Roll       | 
+| 3         | Pitch      | 
+| 4         | Yaw        | 
+
 
 
 

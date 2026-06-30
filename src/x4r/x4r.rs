@@ -65,13 +65,18 @@ impl <SBUS> X4r<SBUS> where
         let buf = unsafe { DMA_BUFFER };
 
         // Verify Header and footer
-        if buf[0] != SYNC_BYTE && buf[buf.len()] != FOOTER_BYTE {
+        if buf[0] != SYNC_BYTE && buf[23] != FOOTER_BYTE {
             return Err(X4rError::Parsing)
         };
 
-        // 11 bit dataframes
-        let ch1 =
+        let _flags = buf[22];
 
+        // 11 bit dataframes
+        let ch1 = (buf[1] as u16)  | (((buf[2] as u16) & 0x07) << 8);
+        let ch2 = (((buf[2] as u16) & 0xF8) >> 3)  | (((buf[3] as u16) & 0x3F) << 5);
+        let ch3 = (((buf[3] as u16) & 0xC0) >> 6) | ((buf[4] as u16) << 2) | (((buf[5] as u16) & 0x01) << 10);
+        let ch4=  (((buf[5] as u16) & 0xFE) >> 1) | (((buf[6] as u16) & 0x07) << 1);
+        let ch4 =
         Ok(())
     }
 

@@ -44,6 +44,12 @@ Then, after binding the transceiver, this was the final result
 
 <img width="792" height="633" alt="image" src="https://github.com/user-attachments/assets/80323a8a-3cf7-4697-8ec6-eac1574825f0" />
 
+11 bit frames 
+First byte is always 0x0F
+Last byte is always 0x00
+Second to last byte is the flags bytes
+
+[0 0 0 0 failsafe frame_lost ch17 ch18]
 
 
 

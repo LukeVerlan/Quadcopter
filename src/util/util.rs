@@ -34,4 +34,3 @@ pub fn parse_f64(bytes: &[u8]) -> f64 {
 pub fn parse_u8(val: &[u8]) -> u8 {
     core::str::from_utf8(val).unwrap_or("0").parse::<u8>().unwrap_or(0)
 }
-

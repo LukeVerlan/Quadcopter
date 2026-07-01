@@ -31,7 +31,6 @@ mod app {
     use stm32f4xx_hal::gpio::{ PC13, Output, PushPull };
     use stm32f4xx_hal::serial::config::{DmaConfig, Parity, StopBits, WordLength};
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
-    use stm32f4xx_hal::pac::{USART1};
     use usbd_serial::SerialPort;
     use stm32f4xx_hal::time::Bps;
     use embedded_cli::cli::{CliBuilder};
@@ -39,8 +38,15 @@ mod app {
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use stm32f4xx_hal::serial::{Config, Tx, Rx, Serial};
     use usb_device::bus::UsbBusAllocator;
-    use crate::x4r::x4r::{X4rData, X4r};
+    use stm32f4xx_hal::pac::*;
+    use crate::x4r::x4r::{
+        X4rData, X4r,
+        X4R_DMA_BUFFER1, X4R_DMA_BUFFER2
+    };
     use super::cli::cli::QuadCli;
+
+    use stm32f4xx_hal::dma::config::DmaConfig as SerialDmaConfig;
+
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
@@ -96,6 +102,19 @@ mod app {
             (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
             (gpioa.pa11.into_alternate(), gpioa.pa12.into_alternate()),
             &clocks
+        );
+
+        let x4r_config = Config {
+            baudrate: Bps(100_000),
+            wordlength: WordLength::DataBits8,
+            parity: Parity::ParityEven,
+            dma: DmaConfig::None, // Change to use DMA
+            stopbits: StopBits::STOP2
+        };
+
+        // Telemetry Startup
+        let usart = Serial::<USART1, u8>::new(
+            dp.USART1, (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()), x4r_config, &clocks
         );
 
         let (usb_dev, writer) = unsafe {

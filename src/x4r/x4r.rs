@@ -1,6 +1,11 @@
 use embedded_hal_nb::serial::Read;
 use nb;
 
+
+const SBUS_MESSAGE_LENGTH: usize  = 25; 
+pub static mut X4R_DMA_BUFFER1: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH];
+pub static mut X4R_DMA_BUFFER2: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH];
+
 const SYNC_BYTE: u8 = 0x0F;
 const FOOTER_BYTE: u8 = 0x00;
 
@@ -9,6 +14,8 @@ const FRAME_LOST_FLAG: u8 = 0x04;
 
 const MIN: u16 = 172; // -100% power
 const MAX: u16 = 1811; // 100% power
+
+
 
 // Converts a SBUS value to a min or maximum percentage
 fn convert_to_percent(

@@ -37,6 +37,8 @@ mod app {
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::serial::{Rx, Tx};
+    use stm32f4xx_hal::timer::FTimer;
+    use stm32f4xx_hal::pac::*;
 
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
@@ -74,16 +76,15 @@ mod app {
         // delay clock startup
         Mono::start(cx.core.SYST, clocks.sysclk().to_Hz());
 
-        // CTRL CODE HERE
-
         // Gpio pins
         let gpioa = dp.GPIOA.split();
+        let gpiob = dp.GPIOB.split();
         let gpioc = dp.GPIOC.split();
 
         // Led
         let led = gpioc.pc13.into_push_pull_output();
 
-        // CLI SETUP
+        let pin = gpioa.pa8.into_alternate::<1>(); // PA8 connects to TIM1_CH1
 
         let usb = USB::new(
             (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),

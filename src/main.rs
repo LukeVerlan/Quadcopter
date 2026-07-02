@@ -104,19 +104,6 @@ mod app {
             &clocks
         );
 
-        let x4r_config = Config {
-            baudrate: Bps(100_000),
-            wordlength: WordLength::DataBits8,
-            parity: Parity::ParityEven,
-            dma: DmaConfig::None, // Change to use DMA
-            stopbits: StopBits::STOP2
-        };
-
-        // Telemetry Startup
-        let usart = Serial::<USART1, u8>::new(
-            dp.USART1, (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()), x4r_config, &clocks
-        );
-
         let (usb_dev, writer) = unsafe {
             USB_BUS = Some(UsbBus::new(usb, &mut EP_MEMORY));
             let usb_bus_ref = USB_BUS.as_ref().unwrap();
@@ -157,25 +144,20 @@ mod app {
         // Telemetry setup
         // ------------------------------------------
 
-        let config = Config {
+        let x4r_config = Config {
             baudrate: Bps(100_000),
             wordlength: WordLength::DataBits8,
             parity: Parity::ParityEven,
-            stopbits: StopBits::STOP2,
-            dma: DmaConfig::None
+            dma: DmaConfig::None, // Change to use DMA
+            stopbits: StopBits::STOP2
         };
 
-        let rx_pin = gpioa.pa10.into_alternate();
-        let tx_pin = gpioa.pa9.into_alternate();
-
-        let uart = Serial::<USART1, u8>::new(
-            dp.USART1,
-            (tx_pin, rx_pin),
-            config,
-            &clocks
+        // Telemetry Startup
+        let telem_usart = Serial::<USART1, u8>::new(
+            dp.USART1, (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()), x4r_config, &clocks
         );
 
-        let (_tx, rx) = uart.unwrap().split();
+        let (_tx, rx) = telem_usart.unwrap().split();
 
         let x4r = X4r::new(rx);
         let x4r_data = x4r.get_data();
@@ -228,7 +210,7 @@ mod app {
         }
     }
 
-    #[task(binds = USART1, local=[x4r])]
+    #[task(binds=USART1, local=[x4r])]
     fn rx_telemetry_message(cx: rx_telemetry_message::Context) {
         let x4r = cx.local.x4r;
 

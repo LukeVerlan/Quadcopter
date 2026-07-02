@@ -48,6 +48,7 @@ mod app {
     use usb_device::bus::UsbBusAllocator;
     use super::cli::cli::QuadCli;
     use stm32f4xx_hal::timer::DelayUs;
+    use stm32f4xx_hal::rcc::Config;
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
@@ -69,11 +70,14 @@ mod app {
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local) {
-        let dp = cx.device;
+        
+        let dp = Peripherals::take().unwrap();
 
-        // Clocks
-        let rcc = dp.RCC.constrain();
-        let clocks = rcc.cfgr.use_hse(25.MHz()).sysclk(96.MHz()).freeze();
+        let mut rcc = dp.RCC.freeze(
+            Config::hse(25.MHz())
+                .sysclk(96.MHz())
+            // add .require_pll48clk() if you need USB, etc.
+        );
 
         // Init the heap
         unsafe {
@@ -81,16 +85,16 @@ mod app {
         }
 
         // delay clock startup
-        Mono::start(cx.core.SYST, clocks.sysclk().to_Hz());
+        Mono::start(cx.core.SYST, rcc.clocks.sysclk().to_Hz());
 
         defmt::println!("BOOT");
 
         // CTRL CODE HERE
 
         // Gpio pins
-        let gpioa = dp.GPIOA.split();
-        let gpiob = dp.GPIOB.split();
-        let gpioc = dp.GPIOC.split();
+        let gpioa = dp.GPIOA.split(&mut rcc);
+        let gpiob = dp.GPIOB.split(&mut rcc);
+        let gpioc = dp.GPIOC.split(&mut rcc);
 
         // Led
         let led = gpioc.pc13.into_push_pull_output();
@@ -102,8 +106,8 @@ mod app {
             gpiob.pb13,    // SCK
             gpiob.pb14,    // MISO
             gpiob.pb15,    // MOSI
-            &clocks,       // Clock reference
-            dp.TIM2.delay_us(&clocks)
+            &mut rcc,       // Clock reference
+            dp.TIM2,
         );
 
         // CLI SETUP
@@ -111,7 +115,7 @@ mod app {
         let usb = USB::new(
             (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
             (gpioa.pa11.into_alternate(), gpioa.pa12.into_alternate()),
-            &clocks
+            &rcc.clocks 
         );
 
         let (usb_dev, writer) = unsafe {

@@ -20,8 +20,8 @@ use super::reg::{Bank0, DATA_READ_LEN, DATA_READ_START_REG};
 // Sensor Setup
 use super::config::*;
 use stm32f4xx_hal::gpio::{Output, PushPull, PB12, PB13, PB14, PB15};
-use stm32f4xx_hal::prelude::_stm32f4xx_hal_spi_SpiExt;
-use stm32f4xx_hal::rcc::Clocks;
+use stm32f4xx_hal::prelude::{_stm32f4xx_hal_spi_SpiExt, _stm32f4xx_hal_timer_TimerExt};
+use stm32f4xx_hal::rcc::{Clocks, Rcc};
 use stm32f4xx_hal::spi::{Mode, Phase, Polarity, Spi};
 use stm32f4xx_hal::gpio::Input;
 use ufmt::{uDisplay, Formatter, uwrite};
@@ -34,8 +34,8 @@ pub fn imu_setup(
     sck: PB13<Input>,
     miso: PB14<Input>,
     mosi: PB15<Input>,
-    clocks: &Clocks,
-    delay: DelayUs<TIM2>
+    rcc: &mut Rcc,
+    tim2: TIM2
 ) -> (Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, DelayUs<TIM2>>>, IMUData) {
 
     let cs = cs.into_push_pull_output();
@@ -45,11 +45,13 @@ pub fn imu_setup(
 
     // Spi peripheral configuration
     let spi = spi.spi(
-        (sck, miso, mosi),
+        (Some(sck), Some(miso), Some(mosi)),
         Mode { polarity: Polarity::IdleLow, phase: Phase::CaptureOnFirstTransition },
         12.MHz(),
-        clocks
+        rcc
     );
+
+    let delay = tim2.delay_us(rcc);
 
     let imu_spi = ExclusiveDevice::new(spi, cs, delay).unwrap();
 

@@ -71,10 +71,8 @@ mod app {
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local) {
-        let dp = cx.device;
-
         // Clocks
-        let dp = stm32f4xx_hal::pac::Peripherals::take().unwrap();
+        let dp = Peripherals::take().unwrap();
 
         let mut rcc = dp.RCC.freeze(
             stm32f4xx_hal::rcc::Config::hse(25.MHz())

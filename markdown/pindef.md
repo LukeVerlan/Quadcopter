@@ -65,9 +65,9 @@ USE TIM3 FOR THE PB PINS
 
 ## Telemetry -- USART1
 | Output | Pin Number |
-|--------|-----------|
-| RX     | PA10      |
-| TX     | PA9       | 
+|--------|------------|
+| RX     | PA10       |
+| TX     | PA9        | 
 
 TX is unused for telemetry
 

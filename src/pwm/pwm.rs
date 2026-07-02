@@ -86,3 +86,15 @@ impl EscPwm {
     }
 
 }
+
+
+
+// Struct EscPwm {
+// } 
+
+// impl EscPwm {
+  // fn new(NOT SELF) -> Self { ... }
+  // fn set_esc(&mut self, enum: ESC, percentage) -> Result<>
+  // fn read_esc(&mut self, enum: ESC) -> Percentage: f32 
+
+

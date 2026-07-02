@@ -2,7 +2,7 @@
 
 ## SPI 
 
-### ICM42688P
+### ICM42688P -- SPI2 -- TIM2
 | Output | Pin Number |
 |--------|------------|
 | CS     | PB12       |
@@ -29,7 +29,7 @@
 
 ## USART
 
-### NEO-M8N -- USART2
+### NEO-M8N
 
 | Output | Pin Number |
 |--------|------------|
@@ -41,8 +41,8 @@
 | Output | Pin Number |
 |--------|------------|
 | ESC 1  | PB1        |
-| ESC 2  | PB10       |
-| ESC 3  | PA0        |
+| ESC 2  | PB4        |
+| ESC 3  | PB5        |
 | ESC 4  | PA1        |
 
 ## Flashing
@@ -59,4 +59,11 @@
 | USBDm - | PA11       |
 | USBDp + | PA12       |
 
+## Telemetry -- USART1
+| Output | Pin Number |
+|--------|-----------|
+| RX     | PA10      |
+| TX     | PA9       | 
+
+TX is unused for telemetry
 

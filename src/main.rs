@@ -34,10 +34,11 @@ mod app {
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
     use embedded_cli::cli::{CliBuilder};
+    use embedded_hal::pwm::SetDutyCycle;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::serial::{Rx, Tx};
-    use stm32f4xx_hal::timer::FTimer;
+    use stm32f4xx_hal::timer::{FTimer, Timer};
     use stm32f4xx_hal::pac::*;
     use stm32f4xx_hal::rcc::Config;
 
@@ -88,6 +89,14 @@ mod app {
         let led = gpioc.pc13.into_push_pull_output();
 
         let pin = gpioa.pa8.into_alternate::<1>(); // PA8 connects to TIM1_CH1
+
+        // 4. Initialize PWM in Hz
+        let (mut pwm_man, (p1,p2,p3,p4)) = dp.TIM1.pwm_us(250.micros(), &mut rcc);
+
+        let mut p1 = p1.with(pin);
+
+        let percent_throttle = 0.75;
+        p1.set_duty(((p1.get_max_duty() as f32) * percent_throttle) as u16); // 3.3v * 3/4
 
         let usb = USB::new(
             (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),

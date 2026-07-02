@@ -38,6 +38,10 @@
 
 ## PWM
 
+USE TIM5 FOR THE PA PINS
+
+USE TIM3 FOR THE PB PINS
+
 | Output | Pin Number |
 |--------|------------|
 | ESC 1  | PB1        |

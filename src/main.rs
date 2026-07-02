@@ -29,14 +29,15 @@ mod app {
     use stm32f4xx_hal::prelude::*;
 
     use stm32f4xx_hal::gpio::{ PC13, Output, PushPull };
-    use stm32f4xx_hal::serial::config::{DmaConfig, Parity, StopBits, WordLength};
+    use stm32f4xx_hal::serial::config::{DmaConfig, IrdaMode, Parity, StopBits, WordLength};
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
     use stm32f4xx_hal::time::Bps;
     use embedded_cli::cli::{CliBuilder};
     use embedded_io::Write;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
-    use stm32f4xx_hal::serial::{Config, Tx, Rx, Serial};
+    use stm32f4xx_hal::serial::{Tx, Rx, Serial};
+    use stm32f4xx_hal::serial::Config as SerialConfig;
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::pac::*;
     use crate::x4r::x4r::{
@@ -46,7 +47,7 @@ mod app {
     use super::cli::cli::QuadCli;
 
     use stm32f4xx_hal::dma::config::DmaConfig as SerialDmaConfig;
-
+    use stm32f4xx_hal::rcc::Config;
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
@@ -77,20 +78,25 @@ mod app {
         let dp = cx.device;
 
         // Clocks
-        let rcc = dp.RCC.constrain();
-        let clocks = rcc.cfgr.use_hse(25.MHz()).sysclk(96.MHz()).freeze();
+        let dp = Peripherals::take().unwrap();
+
+        let mut rcc = dp.RCC.freeze(
+            Config::hse(25.MHz())
+                .sysclk(96.MHz())
+            // add .require_pll48clk() if you need USB, etc.
+        );
 
         // Init the heap
         unsafe { embedded_alloc::init!(HEAP, HEAP_SIZE); }
 
         // delay clock startup
-        Mono::start(cx.core.SYST, clocks.sysclk().to_Hz());
+        Mono::start(cx.core.SYST, rcc.clocks.sysclk().to_Hz());
 
         defmt::println!("BOOT");
 
         // GPIO pins
-        let gpioa = dp.GPIOA.split();
-        let gpioc = dp.GPIOC.split();
+        let gpioa = dp.GPIOA.split(&mut rcc);
+        let gpioc = dp.GPIOC.split(&mut rcc);
 
         // Led
         let led = gpioc.pc13.into_push_pull_output();
@@ -101,7 +107,7 @@ mod app {
         let usb = USB::new(
             (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
             (gpioa.pa11.into_alternate(), gpioa.pa12.into_alternate()),
-            &clocks
+            &rcc.clocks
         );
 
         let (usb_dev, writer) = unsafe {
@@ -144,17 +150,18 @@ mod app {
         // Telemetry setup
         // ------------------------------------------
 
-        let x4r_config = Config {
+        let x4r_config = SerialConfig {
             baudrate: Bps(100_000),
             wordlength: WordLength::DataBits8,
             parity: Parity::ParityEven,
             dma: DmaConfig::None, // Change to use DMA
-            stopbits: StopBits::STOP2
+            stopbits: StopBits::STOP2,
+            irda: IrdaMode::None,
         };
 
         // Telemetry Startup
         let telem_usart = Serial::<USART1, u8>::new(
-            dp.USART1, (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()), x4r_config, &clocks
+            dp.USART1, (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()), x4r_config, &mut rcc
         );
 
         let (_tx, rx) = telem_usart.unwrap().split();

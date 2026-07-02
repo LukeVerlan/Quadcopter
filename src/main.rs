@@ -74,25 +74,29 @@ mod app {
         let dp = cx.device;
 
         // Clocks
-        let rcc = dp.RCC.constrain();
-        let clocks = rcc.cfgr.use_hse(25.MHz()).sysclk(96.MHz()).freeze();
+        let dp = stm32f4xx_hal::pac::Peripherals::take().unwrap();
 
+        let mut rcc = dp.RCC.freeze(
+            stm32f4xx_hal::rcc::Config::hse(25.MHz())
+                .sysclk(96.MHz())
+            // add .require_pll48clk() if you need USB, etc.
+        );
         // Init the heap
         unsafe {
             embedded_alloc::init!(HEAP, HEAP_SIZE);
         }
 
         // delay clock startup
-        Mono::start(cx.core.SYST, clocks.sysclk().to_Hz());
+        Mono::start(cx.core.SYST, rcc.clocks.sysclk().to_Hz());
 
         defmt::println!("BOOT");
 
         // CTRL CODE HERE
 
         // Gpio pins
-        let gpioa = dp.GPIOA.split();
-        let gpiob = dp.GPIOB.split();
-        let gpioc = dp.GPIOC.split();
+        let gpioa = dp.GPIOA.split(&mut rcc);
+        let gpiob = dp.GPIOB.split(&mut rcc);
+        let gpioc = dp.GPIOC.split(&mut rcc);
 
         // Led
         let led = gpioc.pc13.into_push_pull_output();
@@ -104,8 +108,8 @@ mod app {
             gpiob.pb13,    // SCK
             gpiob.pb14,    // MISO
             gpiob.pb15,    // MOSI
-            &clocks,       // Clock reference
-            dp.TIM2.delay_us(&clocks)
+            &mut rcc,       // Clock reference,
+            dp.TIM2
         );
 
         // GPS
@@ -113,7 +117,7 @@ mod app {
             dp.USART2,
             gpioa.pa2,
             gpioa.pa3,
-            &clocks
+            &mut rcc
         );
 
         // CLI SETUP
@@ -121,7 +125,7 @@ mod app {
         let usb = USB::new(
             (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
             (gpioa.pa11.into_alternate(), gpioa.pa12.into_alternate()),
-            &clocks
+            &rcc.clocks
         );
 
         let (usb_dev, writer) = unsafe {

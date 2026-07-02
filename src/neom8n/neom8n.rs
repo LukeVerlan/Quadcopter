@@ -1,10 +1,10 @@
 use embedded_hal_nb::serial::{Read, Write};
 use stm32f4xx_hal::serial::{Config, Tx, Rx, Serial};
-use stm32f4xx_hal::pac::USART2;
-use stm32f4xx_hal::rcc::Clocks;
+use stm32f4xx_hal::pac::{RCC, USART2};
+use stm32f4xx_hal::rcc::{Clocks, Rcc};
 use stm32f4xx_hal::gpio::{PA2, PA3, Input};
 use nb;
-use stm32f4xx_hal::serial::config::{DmaConfig, Parity, StopBits, WordLength};
+use stm32f4xx_hal::serial::config::{IrdaMode, DmaConfig, Parity, StopBits, WordLength};
 use stm32f4xx_hal::time::Bps;
 use ufmt::{uDisplay, Formatter, uwrite, uWrite};
 use stm32f4xx_hal::prelude::*;
@@ -22,7 +22,8 @@ pub const CONFIG: Config = Config {
     wordlength: WordLength::DataBits8,
     parity: Parity::ParityNone,
     stopbits: StopBits::STOP1,
-    dma: DmaConfig::None
+    dma: DmaConfig::None,
+    irda: IrdaMode::None,
 };
 
 /** Constructor Function */
@@ -30,14 +31,14 @@ pub fn gps_setup(
     usart2: USART2,
     tx: PA2<Input>,
     rx: PA3<Input>,
-    clocks: &Clocks,
+    rcc: &mut Rcc,
 ) -> Neom8n<Rx<USART2>,Tx<USART2>>{
 
     let uart = Serial::<USART2, u8>::new(
         usart2,
         (tx.into_alternate::<7>(), rx.into_alternate::<7>()),
         CONFIG,
-        &clocks
+        rcc
     );
 
     let (tx, mut rx) = uart.unwrap().split();

@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-const X4R_DMA_CHANNEL: u8 = 0;
+const X4R_DMA_CHANNEL: u8 = 4;
 pub mod cli;
 pub mod util;
 pub mod x4r;
@@ -41,7 +41,7 @@ mod app {
     use stm32f4xx_hal::serial::Config as SerialConfig;
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::pac::*;
-    use stm32f4xx_hal::dma::{PeripheralToMemory, Stream0, StreamsTuple, Transfer};
+    use stm32f4xx_hal::dma::{PeripheralToMemory, Stream2, StreamsTuple, Transfer};
     use crate::x4r::x4r::{
         X4rData, X4r,
         SBUS_MESSAGE_LENGTH
@@ -52,17 +52,17 @@ mod app {
     use stm32f4xx_hal::rcc::Config;
     use stm32f4xx_hal::serial::dma::SerialDma;
 
-    type X4rDmaTransfer =
-        Transfer<Stream0<DMA1>, X4R_DMA_CHANNEL, Serial<USART1, u8>, PeripheralToMemory, &'static mut [u8; 25]>;
-
+    type X4rDmaTransfer = // From the Table
+        Transfer<Stream2<DMA2>, 4, Rx<USART1, u8>, PeripheralToMemory, &'static mut [u8; SBUS_MESSAGE_LENGTH]>;
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
-    static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // 4096 bytes of memory for the serial port
-    static mut X4R_DMA_BUFFER1: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH];
-
+    static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // Serial port
     #[shared]
-    struct Shared {
-        x4r_data: X4rData
+    struct Shared { 
+        
+        // Telem
+        x4r_dma: X4rDmaTransfer,
+        x4r_data: X4rData 
     }
 
     #[local]
@@ -76,10 +76,11 @@ mod app {
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
 
         // Telemetry
-        x4r: X4r<Rx<USART1>>
+        x4r: X4r
     }
 
-    #[init]
+    #[init(local = [x4rDmaBuf1: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH],
+                    x4rDmaBuf2: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH]])]
     fn init(cx: init::Context) -> (Shared, Local) {
 
         let dp = cx.device;
@@ -90,7 +91,6 @@ mod app {
         let mut rcc = dp.RCC.freeze(
             Config::hse(25.MHz())
                 .sysclk(96.MHz())
-            // add .require_pll48clk() if you need USB, etc.
         );
 
         // Init the heap
@@ -157,33 +157,36 @@ mod app {
         // Telemetry setup
         // ------------------------------------------
 
-        let x4r_config = SerialConfig {
+        let x4r_ser_config = SerialConfig {
             baudrate: Bps(100_000),
             wordlength: WordLength::DataBits8,
             parity: Parity::ParityEven,
-            dma: DmaConfig::Rx, // Change to use DMA
+            dma: DmaConfig::Rx,
             stopbits: StopBits::STOP2,
             irda: IrdaMode::None,
         };
 
+        let x4r_dma_config = SerialDmaConfig::default()
+            .memory_increment(true)
+            .transfer_complete_interrupt(true)
+            .double_buffer(false);
+
         // Telemetry Startup
-        let telem_usart = Serial::<USART1, u8>::new(
-            dp.USART1, (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()), x4r_config, &mut rcc
-        );
+        let (_tx, rx) = Serial::<USART1, u8>::new(
+            dp.USART1, (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()), x4r_ser_config, &mut rcc
+        ).unwrap().split();
 
         let x4r_dma = StreamsTuple::new(dp.DMA2, &mut rcc);
 
-        let x4r_dma_config = Transfer::init_peripheral_to_memory(
-            x4r_dma.0,
-            telem_usart,
-            X4R_DMA_BUFFER1
+        let x4r_dma = X4rDmaTransfer::init_peripheral_to_memory(
+            x4r_dma.2,
+            rx,
+            cx.local.x4rDmaBuf1,
+            None,
+            x4r_dma_config
+        );
 
-        )
-
-
-        let (_tx, rx) = telem_usart.unwrap().split();
-
-        let x4r = X4r::new(rx);
+        let x4r = X4r::new();
         let x4r_data = x4r.get_data();
 
         // ---------------------------------------------
@@ -191,7 +194,7 @@ mod app {
         blink::spawn().unwrap();
 
         (Shared {
-            x4r_data
+            x4r_dma, x4r_data
         }, Local {
             led, cli, usb_dev, x4r
         })

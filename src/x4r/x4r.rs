@@ -21,15 +21,9 @@ fn convert_to_percent(
     ((val - MIN) as f32 / (MAX - MIN) as f32) * 2.0 - 1.0
 }
 
-
-#[allow(static_mut_refs)]
-// 25 Byte buffer
-static mut DMA_BUFFER: [u8; 25] = [0; 25];
-
 // Telemetry driver
-pub struct X4r<SBUS> {
+pub struct X4r {
     data: X4rData,
-    sbus: SBUS,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -48,12 +42,10 @@ pub struct X4rData {
     yaw:      f32,  // CH4
 }
 
-impl <SBUS> X4r<SBUS> where
-    SBUS: Read<u8>
-{
+impl X4r {
 
     /// Constructor
-    pub fn new(sbus: SBUS) -> Self {
+    pub fn new() -> Self {
 
         X4r {
 
@@ -64,8 +56,6 @@ impl <SBUS> X4r<SBUS> where
                 pitch: 0.0,
                 yaw: 0.0,
             },
-
-            sbus,
         }
 
     }
@@ -79,8 +69,7 @@ impl <SBUS> X4r<SBUS> where
 
     // Given a full SBUS message
     fn parse(&mut self) {
-        // Grab the buffer
-        let buf = unsafe { DMA_BUFFER };
+        let buf: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH];
 
         // Verify Header and footer
         if buf[0] != SYNC_BYTE && buf[23] != FOOTER_BYTE {

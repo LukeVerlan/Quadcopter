@@ -41,7 +41,7 @@ mod app {
     use stm32f4xx_hal::serial::Config as SerialConfig;
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::pac::*;
-    use stm32f4xx_hal::dma::{PeripheralToMemory, Stream2, StreamsTuple, Transfer};
+    use stm32f4xx_hal::dma::{DmaFlag, PeripheralToMemory, Stream2, StreamsTuple, Transfer};
     use crate::x4r::x4r::{
         X4rData, X4r,
         SBUS_MESSAGE_LENGTH
@@ -58,11 +58,11 @@ mod app {
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
     static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // Serial port
     #[shared]
-    struct Shared { 
-        
+    struct Shared {
+
         // Telem
         x4r_dma: X4rDmaTransfer,
-        x4r_data: X4rData 
+        x4r_data: X4rData,
     }
 
     #[local]
@@ -76,11 +76,12 @@ mod app {
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
 
         // Telemetry
-        x4r: X4r
+        x4r: X4r,
+        x4r_dma_buf: Option<&'static mut [u8; SBUS_MESSAGE_LENGTH]>,
     }
 
-    #[init(local = [x4rDmaBuf1: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH],
-                    x4rDmaBuf2: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH]])]
+    #[init(local = [x4r_dma_buf1: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH],
+                    x4r_dma_buf2: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH]])]
     fn init(cx: init::Context) -> (Shared, Local) {
 
         let dp = cx.device;
@@ -176,15 +177,17 @@ mod app {
             dp.USART1, (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()), x4r_ser_config, &mut rcc
         ).unwrap().split();
 
-        let x4r_dma = StreamsTuple::new(dp.DMA2, &mut rcc);
+        let channels = StreamsTuple::new(dp.DMA2, &mut rcc);
 
-        let x4r_dma = X4rDmaTransfer::init_peripheral_to_memory(
-            x4r_dma.2,
+        let mut x4r_dma = X4rDmaTransfer::init_peripheral_to_memory(
+            channels.2,
             rx,
-            cx.local.x4rDmaBuf1,
+            cx.local.x4r_dma_buf1,
             None,
             x4r_dma_config
         );
+
+        x4r_dma.start(|_rx| {}); // Start tracking DMA
 
         let x4r = X4r::new();
         let x4r_data = x4r.get_data();
@@ -196,7 +199,7 @@ mod app {
         (Shared {
             x4r_dma, x4r_data
         }, Local {
-            led, cli, usb_dev, x4r
+            led, cli, usb_dev, x4r, x4r_dma_buf: Some(cx.local.x4r_dma_buf2)
         })
     }
 
@@ -237,10 +240,32 @@ mod app {
         }
     }
 
-    #[task(binds=USART1, local=[x4r])]
+    #[task(binds=DMA2_STREAM2, local=[x4r, x4r_dma_buf], shared=[x4r_dma, x4r_data])]
     fn rx_telemetry_message(cx: rx_telemetry_message::Context) {
-        let x4r = cx.local.x4r;
+
+        let local = cx.local;
+        let mut shared = cx.shared;
+
+        // Clear the DMA flags and grab the dma buffer
+        let buf = shared.x4r_dma.lock(|dma| {
+            dma.clear_flags(DmaFlag::TransferComplete);
+
+            // Put the current dma buffer and swap it with the old one
+            let (buf, _) = dma.next_transfer(local.x4r_dma_buf.
+                take().unwrap()).unwrap();
+
+            buf
+        });
+
+        // defmt::println!("DMA BUF: {:?}", buf);
+
+        *local.x4r_dma_buf = Some(buf);
+
+        // Parse out the packet
+        local.x4r.parse(local.x4r_dma_buf.take().unwrap());
+
+        // Update the shared data
+        shared.x4r_data.lock(|data| {  *data = local.x4r.get_data(); })
 
     }
-
 }

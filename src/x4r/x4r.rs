@@ -59,17 +59,9 @@ impl X4r {
         }
 
     }
-
-    /// Implementations
-    fn build_message(&mut self) {
-        todo!("Implement with DMA");
-
-    }
-
-
+    
     // Given a full SBUS message
-    fn parse(&mut self) {
-        let buf: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH];
+    pub fn parse(&mut self, buf: &[u8; SBUS_MESSAGE_LENGTH]) {
 
         // Verify Header and footer
         if buf[0] != SYNC_BYTE && buf[23] != FOOTER_BYTE {
@@ -83,15 +75,23 @@ impl X4r {
             self.data.status = X4rError::FlagsErr;
             return
         }
-
-        // -- Valid Data --
-
+        
         // 11 bit dataframes
-        let ch1 = (buf[1] as u16)  | (((buf[2] as u16) & 0x07) << 8);
-        let ch2 = (((buf[2] as u16) & 0xF8) >> 3)  | (((buf[3] as u16) & 0x3F) << 5);
-        let ch3 = (((buf[3] as u16) & 0xC0) >> 6) | ((buf[4] as u16) << 2) | (((buf[5] as u16) & 0x01) << 10);
-        let ch4=  (((buf[5] as u16) & 0xFE) >> 1) | (((buf[6] as u16) & 0xF) << 1);
-        // Ignore the other channels for now
+        let ch1 = 
+                (buf[1] as u16)  | 
+                (((buf[2] as u16) & 0x07) << 8);
+        let ch2 = 
+                (((buf[2] as u16) & 0xF8) >> 3)  | 
+                (((buf[3] as u16) & 0x3F) << 5);
+        let ch3 = 
+                (((buf[3] as u16) & 0xC0) >> 6) | 
+                ((buf[4] as u16) << 2) | 
+                (((buf[5] as u16) & 0x01) << 10);
+        let ch4= 
+                (((buf[5] as u16) & 0xFE) >> 1) | 
+                (((buf[6] as u16) & 0xF) << 1);
+        
+        defmt::println!("Throttle: {}, Roll: {}, Pitch: {}, Yaw: {}", ch1, ch2, ch3, ch4);
 
         let throttle = convert_to_percent(ch1);
         let roll = convert_to_percent(ch2);

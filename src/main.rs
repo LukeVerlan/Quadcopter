@@ -43,14 +43,13 @@ mod app {
     use stm32f4xx_hal::pac::*;
     use stm32f4xx_hal::dma::{DmaFlag, PeripheralToMemory, Stream2, StreamsTuple, Transfer};
     use crate::x4r::x4r::{
-        X4rData, X4r,
+        X4rData, X4r, X4rError,
         SBUS_MESSAGE_LENGTH
     };
     use super::cli::cli::QuadCli;
 
     use stm32f4xx_hal::dma::config::{DmaConfig as SerialDmaConfig, Priority};
     use stm32f4xx_hal::rcc::Config;
-    use stm32f4xx_hal::serial::dma::SerialDma;
 
     type X4rDmaTransfer = // From the Table
         Transfer<Stream2<DMA2>, 4, Rx<USART1, u8>, PeripheralToMemory, &'static mut [u8; SBUS_MESSAGE_LENGTH]>;
@@ -172,9 +171,11 @@ mod app {
             .transfer_complete_interrupt(true)
             .double_buffer(false);
 
-        // Telemetry Startup
         let (_tx, rx) = Serial::<USART1, u8>::new(
-            dp.USART1, (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()), x4r_ser_config, &mut rcc
+            dp.USART1,
+            (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()),
+            x4r_ser_config,
+            &mut rcc
         ).unwrap().split();
 
         let channels = StreamsTuple::new(dp.DMA2, &mut rcc);
@@ -193,8 +194,6 @@ mod app {
         let x4r_data = x4r.get_data();
 
         // ---------------------------------------------
-
-        blink::spawn().unwrap();
 
         (Shared {
             x4r_dma, x4r_data
@@ -231,20 +230,13 @@ mod app {
 
     }
 
-    #[task(local=[led], priority = 1)]
-    async fn blink(_cx: blink::Context) {
-        let led = _cx.local.led;
-        loop {
-            led.toggle();
-            Mono::delay(1_000.millis()).await; // Wait 500 milliseconds
-        }
-    }
-
-    #[task(binds=DMA2_STREAM2, local=[x4r, x4r_dma_buf], shared=[x4r_dma, x4r_data])]
+    #[task(binds=DMA2_STREAM2, local=[x4r, x4r_dma_buf, led], shared=[x4r_dma, x4r_data])]
     fn rx_telemetry_message(cx: rx_telemetry_message::Context) {
 
         let local = cx.local;
         let mut shared = cx.shared;
+
+        local.led.toggle();
 
         // Clear the DMA flags and grab the dma buffer
         let buf = shared.x4r_dma.lock(|dma| {
@@ -262,7 +254,7 @@ mod app {
         *local.x4r_dma_buf = Some(buf);
 
         // Parse out the packet
-        local.x4r.parse(local.x4r_dma_buf.take().unwrap());
+        let res = local.x4r.parse(local.x4r_dma_buf.take().unwrap());
 
         // Update the shared data
         shared.x4r_data.lock(|data| {  *data = local.x4r.get_data(); })

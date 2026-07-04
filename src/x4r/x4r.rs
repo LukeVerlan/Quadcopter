@@ -1,5 +1,5 @@
-use embedded_hal_nb::serial::Read;
-use nb;
+use defmt::{Formatter, Format, write};
+use super::super::util::util::DisplayFloat;
 
 pub const SBUS_MESSAGE_LENGTH: usize  = 25;
 
@@ -21,6 +21,7 @@ fn convert_to_percent(
     ((val - MIN) as f32 / (MAX - MIN) as f32) * 2.0 - 1.0
 }
 
+
 // Telemetry driver
 pub struct X4r {
     data: X4rData,
@@ -29,8 +30,18 @@ pub struct X4r {
 #[derive(Debug, Clone, Copy)]
 pub enum X4rError{
     NoErr,
-    BufferErr,
+    FramingErr,
     FlagsErr
+}
+
+impl Format for X4rError {
+    fn format(&self, fmt: Formatter) {
+        match self {
+            Self::NoErr => write!(fmt, "No Error"),
+            Self::FramingErr => write!(fmt, "Framing Error"),
+            Self::FlagsErr => write!(fmt, "No Signal"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -40,6 +51,14 @@ pub struct X4rData {
     roll:     f32,  // CH2
     pitch:    f32,  // CH3
     yaw:      f32,  // CH4
+}
+
+impl Format for X4rData {
+    fn format(&self, fmt: Formatter) {
+        write!(fmt, "Error: {=?} \t Throttle {} \t Roll {} \t Pitch {} \t Yaw {} \n",
+               self.status, DisplayFloat(self.throttle), DisplayFloat(self.roll),
+               DisplayFloat(self.pitch), DisplayFloat(self.yaw))
+    }
 }
 
 impl X4r {
@@ -59,38 +78,54 @@ impl X4r {
         }
 
     }
-    
+
     // Given a full SBUS message
-    pub fn parse(&mut self, buf: &[u8; SBUS_MESSAGE_LENGTH]) {
+    pub fn parse(&mut self, buf: &[u8; SBUS_MESSAGE_LENGTH]) -> Result<(), X4rError> {
 
         // Verify Header and footer
         if buf[0] != SYNC_BYTE && buf[23] != FOOTER_BYTE {
-            self.data.status = X4rError::BufferErr;
-            return
+            
+            self.data = X4rData {
+                status: X4rError::FramingErr,
+                throttle: 0.0,
+                roll: 0.0,
+                pitch: 0.0,
+                yaw: 0.0,
+            };
+            
+            return Err(X4rError::FramingErr);
         }
 
         let _flags = buf[22]; // Flags byte
 
         if _flags & FAILSAFE_FLAG > 0 || _flags & FRAME_LOST_FLAG > 0 {
-            self.data.status = X4rError::FlagsErr;
-            return
+            
+            self.data = X4rData {
+                status: X4rError::FlagsErr,
+                throttle: 0.0,
+                roll: 0.0,
+                pitch: 0.0,
+                yaw: 0.0,
+            };
+            
+            return Err(X4rError::FramingErr);
         }
-        
+
         // 11 bit dataframes
-        let ch1 = 
-                (buf[1] as u16)  | 
+        let ch1 =
+                (buf[1] as u16)  |
                 (((buf[2] as u16) & 0x07) << 8);
-        let ch2 = 
-                (((buf[2] as u16) & 0xF8) >> 3)  | 
+        let ch2 =
+                (((buf[2] as u16) & 0xF8) >> 3)  |
                 (((buf[3] as u16) & 0x3F) << 5);
-        let ch3 = 
-                (((buf[3] as u16) & 0xC0) >> 6) | 
-                ((buf[4] as u16) << 2) | 
+        let ch3 =
+                (((buf[3] as u16) & 0xC0) >> 6) |
+                ((buf[4] as u16) << 2) |
                 (((buf[5] as u16) & 0x01) << 10);
-        let ch4= 
-                (((buf[5] as u16) & 0xFE) >> 1) | 
+        let ch4=
+                (((buf[5] as u16) & 0xFE) >> 1) |
                 (((buf[6] as u16) & 0xF) << 1);
-        
+
         defmt::println!("Throttle: {}, Roll: {}, Pitch: {}, Yaw: {}", ch1, ch2, ch3, ch4);
 
         let throttle = convert_to_percent(ch1);
@@ -105,6 +140,8 @@ impl X4r {
             pitch,
             yaw
         };
+        
+        Ok(())
 
     }
 

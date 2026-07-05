@@ -21,6 +21,8 @@ where
     }
 }
 
+
+/// Used for formatting defmt floats
 impl<T> Format for DisplayFloat<T>
 where
     T: ryu::Float + Display + PartialEq,

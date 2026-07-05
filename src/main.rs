@@ -25,7 +25,7 @@ systick_monotonic!(Mono, 10_000);
 
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
 mod app {
-    use super::*;
+    use core::cmp::PartialEq;use super::*;
     use super::cli::cli::{ Writer };
     use stm32f4xx_hal::prelude::*;
 
@@ -36,8 +36,9 @@ mod app {
     use stm32f4xx_hal::time::Bps;
     use embedded_cli::cli::{CliBuilder};
     use embedded_io::Write;
+    use rtic::Mutex;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
-    use stm32f4xx_hal::serial::{Tx, Rx, Serial};
+    use stm32f4xx_hal::serial::{Tx, Rx, Serial, Event};
     use stm32f4xx_hal::serial::Config as SerialConfig;
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::pac::*;
@@ -60,7 +61,7 @@ mod app {
     struct Shared {
 
         // Telem
-        x4r_dma: X4rDmaTransfer,
+        x4r_dma: Option<X4rDmaTransfer>,
         x4r_data: X4rData,
     }
 
@@ -171,12 +172,16 @@ mod app {
             .transfer_complete_interrupt(true)
             .double_buffer(false);
 
-        let (_tx, rx) = Serial::<USART1, u8>::new(
+        let mut telem_usart = Serial::<USART1, u8>::new(
             dp.USART1,
             (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()),
             x4r_ser_config,
             &mut rcc
-        ).unwrap().split();
+        ).unwrap();
+
+        telem_usart.listen(Event::Idle);
+
+        let (_tx, rx) = telem_usart.split();
 
         let channels = StreamsTuple::new(dp.DMA2, &mut rcc);
 
@@ -196,7 +201,7 @@ mod app {
         // ---------------------------------------------
 
         (Shared {
-            x4r_dma, x4r_data
+           x4r_dma: Some(x4r_dma), x4r_data
         }, Local {
             led, cli, usb_dev, x4r, x4r_dma_buf: Some(cx.local.x4r_dma_buf2)
         })
@@ -240,11 +245,18 @@ mod app {
 
         // Clear the DMA flags and grab the dma buffer
         let buf = shared.x4r_dma.lock(|dma| {
-            dma.clear_flags(DmaFlag::TransferComplete);
+
+            // Move ownership of the xfer into another object
+            let mut xfer = dma.take().unwrap();
+
+            xfer.clear_flags(DmaFlag::TransferComplete);
 
             // Put the current dma buffer and swap it with the old one
-            let (buf, _) = dma.next_transfer(local.x4r_dma_buf.
+            let (buf, _) = xfer.next_transfer(local.x4r_dma_buf.
                 take().unwrap()).unwrap();
+
+            // Return ownership of the dma
+            *dma = Some(xfer);
 
             buf
         });
@@ -254,10 +266,47 @@ mod app {
         *local.x4r_dma_buf = Some(buf);
 
         // Parse out the packet
-        let res = local.x4r.parse(local.x4r_dma_buf.take().unwrap());
+        let res = local.x4r.parse(local.x4r_dma_buf.as_ref().unwrap());
 
         // Update the shared data
         shared.x4r_data.lock(|data| {  *data = local.x4r.get_data(); })
 
+    }
+
+
+    /// Resets the DMA on an idle
+    #[task(binds = USART1, shared = [x4r_dma])]
+    fn reset_dma(cx: reset_dma::Context) {
+        defmt::warn!("Resetting the DMA");
+        let mut dma = cx.shared.x4r_dma;
+
+        dma.lock(|dma| {
+            let xfer = dma.take().unwrap();
+
+            let xfer = if !xfer.is_idle() {
+                // Release the dma, killing any mid-process transfer
+                let (stream, rx, buf, _) = xfer.release();
+
+                if rx.is_idle() {
+                    rx.clear_idle_interrupt();
+                }
+
+                let config = SerialDmaConfig::default()
+                    .memory_increment(true)
+                    .transfer_complete_interrupt(true)
+                    .double_buffer(false);
+
+                let mut new_xfer = X4rDmaTransfer::init_peripheral_to_memory(
+                    stream, rx, buf, None, config,
+                );
+
+                new_xfer.start(|_rx| {});
+                new_xfer
+            } else {
+                xfer
+            };
+
+            *dma = Some(xfer);
+        });
     }
 }

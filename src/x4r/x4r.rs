@@ -1,5 +1,6 @@
 use defmt::{Formatter, Format, write};
 use super::super::util::util::DisplayFloat;
+use stm32f4xx_hal::dma::config::DmaConfig;
 
 pub const SBUS_MESSAGE_LENGTH: usize  = 25;
 
@@ -9,41 +10,48 @@ const FOOTER_BYTE: u8 = 0x00;
 const FAILSAFE_FLAG: u8 = 0x08;
 const FRAME_LOST_FLAG: u8 = 0x04;
 
-const MIN: u16 = 172; // -100% power
-const MAX: u16 = 1811; // 100% power
+const SBUS_MIN: u16 = 172; // -100% power
+const SBUS_MAX: u16 = 1811; // 100% power
 
 
 
-// Converts a SBUS value to a min or maximum percentage
+/** Converts an channel value to a percent value
+ *  @param val: SBUS mapped value
+ *  @return Percent value between 0 and 1
+ */
 fn convert_to_percent(
     val: u16
 ) -> f32 {
-    ((val - MIN) as f32 / (MAX - MIN) as f32) * 2.0 - 1.0
+    ((val - SBUS_MIN) as f32 / (SBUS_MAX - SBUS_MIN) as f32) * 2.0
 }
 
+/** Telemetry System */
+pub struct X4r { data: X4rData, }
 
-// Telemetry driver
-pub struct X4r {
-    data: X4rData,
-}
-
-#[derive(Debug, Clone, Copy)]
+/** Error system for Telemetry
+    NoErr       -> Clean transmission
+    FramingErr  -> Missplaced sync / footer
+    FlagsErr    -> No Signal
+*/
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum X4rError{
     NoErr,
     FramingErr,
     FlagsErr
 }
 
+/** ToString functionality for defmt printing of the Error type */
 impl Format for X4rError {
     fn format(&self, fmt: Formatter) {
         match self {
             Self::NoErr => write!(fmt, "No Error"),
             Self::FramingErr => write!(fmt, "Framing Error"),
-            Self::FlagsErr => write!(fmt, "No Signal"),
+            Self::FlagsErr => write!(fmt, "FATAL: No Signal"),
         }
     }
 }
 
+/** Data storage for the Telemetry System */
 #[derive(Debug, Clone, Copy)]
 pub struct X4rData {
     status: X4rError,
@@ -53,6 +61,7 @@ pub struct X4rData {
     yaw:      f32,  // CH4
 }
 
+/** ToString functionality for defmt printing of the data */
 impl Format for X4rData {
     fn format(&self, fmt: Formatter) {
         write!(fmt, "Error: {=?} \t Throttle {} \t Roll {} \t Pitch {} \t Yaw {} \n",
@@ -61,13 +70,13 @@ impl Format for X4rData {
     }
 }
 
+/** Implementations for the telemetry system */
 impl X4r {
 
     /// Constructor
     pub fn new() -> Self {
 
         X4r {
-
             data: X4rData {
                 status: X4rError::NoErr,
                 throttle: 0.0,
@@ -79,12 +88,18 @@ impl X4r {
 
     }
 
-    // Given a full SBUS message
+    /** Parses a given buffer as an SBUS message
+     *  Errors:
+     *      FramingErr -> PacketCame over corrupted
+     *      FlagsErr   -> The reciever sent over error flags
+     *  Params:
+     *      Takes in a buffer to parse an SBUS buffer
+     */
     pub fn parse(&mut self, buf: &[u8; SBUS_MESSAGE_LENGTH]) -> Result<(), X4rError> {
 
         // Verify Header and footer
         if buf[0] != SYNC_BYTE && buf[23] != FOOTER_BYTE {
-            
+
             self.data = X4rData {
                 status: X4rError::FramingErr,
                 throttle: 0.0,
@@ -92,14 +107,14 @@ impl X4r {
                 pitch: 0.0,
                 yaw: 0.0,
             };
-            
+
             return Err(X4rError::FramingErr);
         }
 
         let _flags = buf[22]; // Flags byte
 
         if _flags & FAILSAFE_FLAG > 0 || _flags & FRAME_LOST_FLAG > 0 {
-            
+
             self.data = X4rData {
                 status: X4rError::FlagsErr,
                 throttle: 0.0,
@@ -107,8 +122,8 @@ impl X4r {
                 pitch: 0.0,
                 yaw: 0.0,
             };
-            
-            return Err(X4rError::FramingErr);
+
+            return Err(X4rError::FlagsErr);
         }
 
         // 11 bit dataframes
@@ -126,8 +141,6 @@ impl X4r {
                 (((buf[5] as u16) & 0xFE) >> 1) |
                 (((buf[6] as u16) & 0xF) << 1);
 
-        defmt::println!("Throttle: {}, Roll: {}, Pitch: {}, Yaw: {}", ch1, ch2, ch3, ch4);
-
         let throttle = convert_to_percent(ch1);
         let roll = convert_to_percent(ch2);
         let pitch = convert_to_percent(ch3);
@@ -140,11 +153,12 @@ impl X4r {
             pitch,
             yaw
         };
-        
+
         Ok(())
 
     }
 
+    /** Returns the current stored telem data */
     pub fn get_data(&self) -> X4rData { self.data }
 }
 

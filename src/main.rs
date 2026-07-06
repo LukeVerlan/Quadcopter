@@ -84,10 +84,8 @@ mod app {
                     x4r_dma_buf2: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH]])]
     fn init(cx: init::Context) -> (Shared, Local) {
 
-        let dp = cx.device;
-
         // Clocks
-        let dp = Peripherals::take().unwrap();
+        let dp = cx.device;
 
         let mut rcc = dp.RCC.freeze(
             Config::hse(25.MHz())
@@ -235,7 +233,7 @@ mod app {
 
     }
 
-    #[task(binds=DMA2_STREAM2, local=[x4r, x4r_dma_buf, led], shared=[x4r_dma, x4r_data])]
+    #[task(binds=DMA2_STREAM2, local=[x4r, x4r_dma_buf, led], shared=[x4r_dma, x4r_data], priority = 2)]
     fn rx_telemetry_message(cx: rx_telemetry_message::Context) {
 
         let local = cx.local;
@@ -261,12 +259,12 @@ mod app {
             buf
         });
 
-        // defmt::println!("DMA BUF: {:?}", buf);
+        // defmt::println!("DMA BUF: {:02x}", buf);
 
         *local.x4r_dma_buf = Some(buf);
 
         // Parse out the packet
-        let res = local.x4r.parse(local.x4r_dma_buf.as_ref().unwrap());
+         let _res =local.x4r.parse(local.x4r_dma_buf.as_ref().unwrap());
 
         // Update the shared data
         shared.x4r_data.lock(|data| {  *data = local.x4r.get_data(); })
@@ -274,41 +272,53 @@ mod app {
     }
 
 
-    /// Resets the DMA on an idle
-    #[task(binds = USART1, shared = [x4r_dma])]
-    fn reset_dma(cx: reset_dma::Context) {
+    #[task(binds = USART1, shared = [x4r_dma], priority = 1)]
+    fn check_dma(cx: check_dma::Context) {
         let mut dma = cx.shared.x4r_dma;
 
         dma.lock(|dma| {
-            let xfer = dma.take().unwrap();
-
-            let xfer = if xfer.is_idle() {
-
-                let remaining = xfer.number_of_transfers();
-                xfer.clear_idle_interrupt();
-
-                if remaining != 0 {
-                    defmt::warn!("Resetting the DMA");
-                    let (stream, rx, buf, _) = xfer.release();
-                    let config = SerialDmaConfig::default()
-                        .memory_increment(true)
-                        .transfer_complete_interrupt(true)
-                        .double_buffer(false);
-
-                    let mut new_xfer = X4rDmaTransfer::init_peripheral_to_memory(
-                        stream, rx, buf, None, config,
-                    );
-
-                    new_xfer.start(|_rx| {});
-                    new_xfer
-                } else {
-                    xfer
-                }
-            } else {
-                xfer
+            let Some(xfer) = dma.as_mut() else {
+                // A reset is already in flight — nothing to check right now.
+                return;
             };
 
-            *dma = Some(xfer);
+            xfer.clear_idle_interrupt();
+            let remaining = xfer.number_of_transfers();
+
+            if remaining != 0 && remaining != SBUS_MESSAGE_LENGTH as u16 {
+                perform_dma_reset::spawn().ok();
+            }
+        });
+    }
+
+    #[task(shared = [x4r_dma], priority = 1)]
+    async fn perform_dma_reset(mut cx: perform_dma_reset::Context) {
+        let released = cx.shared.x4r_dma.lock(|dma| {
+            dma.take().map(|xfer| xfer.release())
+        });
+
+        let Some((stream, rx, buf, _)) = released else {
+            // Already taken by another invocation — nothing to reset.
+            defmt::println!("perform_dma_reset: skipped, already in progress");
+            return;
+        };
+
+        Mono::delay(3.millis()).await;
+
+        defmt::println!("Resetting the DMA");
+
+        let config = SerialDmaConfig::default()
+            .memory_increment(true)
+            .transfer_complete_interrupt(true)
+            .double_buffer(false);
+
+        let mut new_xfer = X4rDmaTransfer::init_peripheral_to_memory(
+            stream, rx, buf, None, config,
+        );
+        new_xfer.start(|_rx| {});
+
+        cx.shared.x4r_dma.lock(|dma| {
+            *dma = Some(new_xfer);
         });
     }
 }

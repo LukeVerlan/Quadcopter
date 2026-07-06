@@ -51,6 +51,11 @@ Second to last byte is the flags bytes
 
 [0 0 0 0 failsafe frame_lost ch17 ch18]
 
+## Lessons Learned From Testing
+
+SBUS is only communicated when there is an _ACTIVE_ connection to the radio, otherwise nothing is caught.
+
+
 
 
 

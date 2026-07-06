@@ -4,6 +4,8 @@ use stm32f4xx_hal::dma::config::DmaConfig;
 
 pub const SBUS_MESSAGE_LENGTH: usize  = 25;
 
+pub const FLAGS_IDX: usize = 24;
+
 const SYNC_BYTE: u8 = 0x0F;
 const FOOTER_BYTE: u8 = 0x00;
 
@@ -17,12 +19,11 @@ const SBUS_MAX: u16 = 1811; // 100% power
 
 /** Converts an channel value to a percent value
  *  @param val: SBUS mapped value
- *  @return Percent value between 0 and 1
+ *  @return Percent value between -1 and 1
  */
-fn convert_to_percent(
-    val: u16
-) -> f32 {
-    ((val - SBUS_MIN) as f32 / (SBUS_MAX - SBUS_MIN) as f32) * 2.0
+fn convert_to_percent(val: u16) -> f32 {
+    if val < SBUS_MIN || val > SBUS_MAX { return f32::NAN; }
+    (((val - SBUS_MIN) as f32 / (SBUS_MAX - SBUS_MIN) as f32) * 2.0) - 1.0
 }
 
 /** Telemetry System */
@@ -37,7 +38,7 @@ pub struct X4r { data: X4rData, }
 pub enum X4rError{
     NoErr,
     FramingErr,
-    FlagsErr
+    FailSafeErr
 }
 
 /** ToString functionality for defmt printing of the Error type */
@@ -46,7 +47,7 @@ impl Format for X4rError {
         match self {
             Self::NoErr => write!(fmt, "No Error"),
             Self::FramingErr => write!(fmt, "Framing Error"),
-            Self::FlagsErr => write!(fmt, "FATAL: No Signal"),
+            Self::FailSafeErr => write!(fmt, "FATAL: No Signal"),
         }
     }
 }
@@ -98,7 +99,7 @@ impl X4r {
     pub fn parse(&mut self, buf: &[u8; SBUS_MESSAGE_LENGTH]) -> Result<(), X4rError> {
 
         // Verify Header and footer
-        if buf[0] != SYNC_BYTE && buf[23] != FOOTER_BYTE {
+        if buf[0] != SYNC_BYTE || buf[24] != FOOTER_BYTE {
 
             self.data = X4rData {
                 status: X4rError::FramingErr,
@@ -108,22 +109,25 @@ impl X4r {
                 yaw: 0.0,
             };
 
+            defmt::println!("Framing Error");
             return Err(X4rError::FramingErr);
         }
 
-        let _flags = buf[22]; // Flags byte
+        let _flags = buf[FLAGS_IDX]; // Flags byte
 
         if _flags & FAILSAFE_FLAG > 0 || _flags & FRAME_LOST_FLAG > 0 {
 
             self.data = X4rData {
-                status: X4rError::FlagsErr,
+                status: X4rError::FailSafeErr,
                 throttle: 0.0,
                 roll: 0.0,
                 pitch: 0.0,
                 yaw: 0.0,
             };
 
-            return Err(X4rError::FlagsErr);
+            defmt::println!("FailSafe Error");
+
+            return Err(X4rError::FailSafeErr);
         }
 
         // 11 bit dataframes
@@ -137,9 +141,9 @@ impl X4r {
                 (((buf[3] as u16) & 0xC0) >> 6) |
                 ((buf[4] as u16) << 2) |
                 (((buf[5] as u16) & 0x01) << 10);
-        let ch4=
-                (((buf[5] as u16) & 0xFE) >> 1) |
-                (((buf[6] as u16) & 0xF) << 1);
+        let ch4 =
+                ((buf[5] as u16) >> 1) |
+                (((buf[6] as u16) & 0x0F) << 7);
 
         let throttle = convert_to_percent(ch1);
         let roll = convert_to_percent(ch2);
@@ -153,6 +157,8 @@ impl X4r {
             pitch,
             yaw
         };
+
+        defmt::println!("Valid: \t {}", self.data);
 
         Ok(())
 

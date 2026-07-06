@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-const X4R_DMA_CHANNEL: u8 = 4;
 pub mod cli;
 pub mod util;
 pub mod x4r;
@@ -159,7 +158,7 @@ mod app {
             &mut rcc
         ).unwrap();
 
-        telem_usart.listen(Event::Idle);
+        telem_usart.listen(Event::Idle); // Setup idle interrupt to reset DMA
 
         let (_tx, rx) = telem_usart.split();
 

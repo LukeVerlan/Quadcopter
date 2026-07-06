@@ -9,7 +9,7 @@ pub mod x4r;
 extern crate alloc;
 
 use panic_probe as _;
-use defmt_rtt as _;      // transport backend
+use defmt_rtt as _;
 
 use rtic::app;
 use rtic_monotonics::systick::prelude::*;
@@ -25,35 +25,29 @@ systick_monotonic!(Mono, 10_000);
 
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
 mod app {
-    use core::cmp::PartialEq;use super::*;
+
+    use super::*;
     use super::cli::cli::{ Writer };
     use stm32f4xx_hal::prelude::*;
 
     use stm32f4xx_hal::gpio::{ PC13, Output, PushPull };
-    use stm32f4xx_hal::serial::config::{DmaConfig, IrdaMode, Parity, StopBits, WordLength};
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
-    use stm32f4xx_hal::time::Bps;
     use embedded_cli::cli::{CliBuilder};
     use embedded_io::Write;
-    use rtic::Mutex;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
-    use stm32f4xx_hal::serial::{Tx, Rx, Serial, Event};
-    use stm32f4xx_hal::serial::Config as SerialConfig;
+    use stm32f4xx_hal::serial::{Rx, Serial, Event};
     use usb_device::bus::UsbBusAllocator;
     use stm32f4xx_hal::pac::*;
     use stm32f4xx_hal::dma::{DmaFlag, PeripheralToMemory, Stream2, StreamsTuple, Transfer};
-    use crate::x4r::x4r::{
-        X4rData, X4r, X4rError,
-        SBUS_MESSAGE_LENGTH
-    };
+    use crate::x4r::x4r::{X4rData, X4r, X4rError, SBUS_MESSAGE_LENGTH, X4R_SBUS_CONFIG, get_x4r_dma_config};
     use super::cli::cli::QuadCli;
 
-    use stm32f4xx_hal::dma::config::{DmaConfig as SerialDmaConfig, Priority};
     use stm32f4xx_hal::rcc::Config;
 
-    type X4rDmaTransfer = // From the Table
+    type X4rDmaTransfer = // From the DMA Table
         Transfer<Stream2<DMA2>, 4, Rx<USART1, u8>, PeripheralToMemory, &'static mut [u8; SBUS_MESSAGE_LENGTH]>;
+
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
     static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // Serial port
@@ -154,26 +148,14 @@ mod app {
         // -------------------------------------------
 
         // Telemetry setup
-        // ------------------------------------------
+        // -----------------------------------------
 
-        let x4r_ser_config = SerialConfig {
-            baudrate: Bps(100_000),
-            wordlength: WordLength::DataBits8,
-            parity: Parity::ParityEven,
-            dma: DmaConfig::Rx,
-            stopbits: StopBits::STOP2,
-            irda: IrdaMode::None,
-        };
-
-        let x4r_dma_config = SerialDmaConfig::default()
-            .memory_increment(true)
-            .transfer_complete_interrupt(true)
-            .double_buffer(false);
+        let x4r_dma_config = get_x4r_dma_config();
 
         let mut telem_usart = Serial::<USART1, u8>::new(
             dp.USART1,
             (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()),
-            x4r_ser_config,
+            X4R_SBUS_CONFIG,
             &mut rcc
         ).unwrap();
 
@@ -271,7 +253,6 @@ mod app {
 
     }
 
-
     #[task(binds = USART1, shared = [x4r_dma], priority = 1)]
     fn check_dma(cx: check_dma::Context) {
         let mut dma = cx.shared.x4r_dma;
@@ -303,14 +284,12 @@ mod app {
             return;
         };
 
+        // Message frame size, skip the rest of this message to pick up the next freshly
         Mono::delay(3.millis()).await;
 
         defmt::println!("Resetting the DMA");
 
-        let config = SerialDmaConfig::default()
-            .memory_increment(true)
-            .transfer_complete_interrupt(true)
-            .double_buffer(false);
+        let config = get_x4r_dma_config();
 
         let mut new_xfer = X4rDmaTransfer::init_peripheral_to_memory(
             stream, rx, buf, None, config,

@@ -1,6 +1,9 @@
 use defmt::{Formatter, Format, write};
 use super::super::util::util::DisplayFloat;
-use stm32f4xx_hal::dma::config::DmaConfig;
+use stm32f4xx_hal::dma::config::DmaConfig as SerialDmaConfig;
+use stm32f4xx_hal::serial::{Config as SerialConfig};
+use stm32f4xx_hal::serial::config::{DmaConfig, IrdaMode, Parity, StopBits, WordLength};
+use stm32f4xx_hal::time::Bps;
 
 pub const SBUS_MESSAGE_LENGTH: usize  = 25;
 
@@ -14,6 +17,23 @@ const FRAME_LOST_FLAG: u8 = 0x04;
 
 const SBUS_MIN: u16 = 172; // -100% power
 const SBUS_MAX: u16 = 1811; // 100% power
+
+/// Configs
+pub const X4R_SBUS_CONFIG: SerialConfig = SerialConfig {
+    baudrate: Bps(100_000),
+    wordlength: WordLength::DataBits8,
+    parity: Parity::ParityEven,
+    dma: DmaConfig::Rx,
+    stopbits: StopBits::STOP2,
+    irda: IrdaMode::None,
+};
+
+pub fn get_x4r_dma_config() -> SerialDmaConfig {
+    SerialDmaConfig::default()
+        .memory_increment(true)
+        .transfer_complete_interrupt(true)
+        .double_buffer(false)
+}
 
 
 
@@ -167,6 +187,3 @@ impl X4r {
     /** Returns the current stored telem data */
     pub fn get_data(&self) -> X4rData { self.data }
 }
-
-
-

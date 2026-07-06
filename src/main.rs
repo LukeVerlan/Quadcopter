@@ -277,31 +277,33 @@ mod app {
     /// Resets the DMA on an idle
     #[task(binds = USART1, shared = [x4r_dma])]
     fn reset_dma(cx: reset_dma::Context) {
-        defmt::warn!("Resetting the DMA");
         let mut dma = cx.shared.x4r_dma;
 
         dma.lock(|dma| {
             let xfer = dma.take().unwrap();
 
-            let xfer = if !xfer.is_idle() {
-                // Release the dma, killing any mid-process transfer
-                let (stream, rx, buf, _) = xfer.release();
+            let xfer = if xfer.is_idle() {
 
-                if rx.is_idle() {
-                    rx.clear_idle_interrupt();
+                let remaining = xfer.number_of_transfers();
+                xfer.clear_idle_interrupt();
+
+                if remaining != 0 {
+                    defmt::warn!("Resetting the DMA");
+                    let (stream, rx, buf, _) = xfer.release();
+                    let config = SerialDmaConfig::default()
+                        .memory_increment(true)
+                        .transfer_complete_interrupt(true)
+                        .double_buffer(false);
+
+                    let mut new_xfer = X4rDmaTransfer::init_peripheral_to_memory(
+                        stream, rx, buf, None, config,
+                    );
+
+                    new_xfer.start(|_rx| {});
+                    new_xfer
+                } else {
+                    xfer
                 }
-
-                let config = SerialDmaConfig::default()
-                    .memory_increment(true)
-                    .transfer_complete_interrupt(true)
-                    .double_buffer(false);
-
-                let mut new_xfer = X4rDmaTransfer::init_peripheral_to_memory(
-                    stream, rx, buf, None, config,
-                );
-
-                new_xfer.start(|_rx| {});
-                new_xfer
             } else {
                 xfer
             };

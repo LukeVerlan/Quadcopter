@@ -59,4 +59,11 @@
 | USBDm - | PA11       |
 | USBDp + | PA12       |
 
+## Telemetry -- USART1
+| Output | Pin Number |
+|--------|------------|
+| RX     | PA10       |
+| TX     | PA 9       | 
+
+TX is unused for telemetry
 

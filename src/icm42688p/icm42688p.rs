@@ -1,4 +1,6 @@
-
+use defmt::Format;
+use defmt::Formatter as deFormatter;
+use defmt::write;
 /// LONG TERM
 // TODO : Functionality -> Interrupt setup (INT_CONFIG, Identify Pin Number)
 // As long as Accel and Gyro have same sample rate, when this flag goes off just burst read the whole shit
@@ -47,7 +49,7 @@ pub fn imu_setup(
     let spi = spi.spi(
         (Some(sck), Some(miso), Some(mosi)),
         Mode { polarity: Polarity::IdleLow, phase: Phase::CaptureOnFirstTransition },
-        12.MHz(),
+        1.MHz(),
         rcc
     );
 
@@ -93,6 +95,15 @@ impl uDisplay for IMUData {
             DisplayFloat(self.accel.accel_x), DisplayFloat(self.accel.accel_y),
             DisplayFloat(self.accel.accel_z), DisplayFloat(self.gyro.gyro_x),
             DisplayFloat(self.gyro.gyro_y), DisplayFloat(self.gyro.gyro_z)
+        )
+    }
+}
+
+impl Format for IMUData {
+    fn format(&self, fmt: deFormatter) {
+        write!(fmt, "Accel -> X: {} Y: {} Z: {} Gyro -> X: {} Y: {} Z: {}",
+            DisplayFloat(self.accel.accel_x), DisplayFloat(self.accel.accel_y), DisplayFloat(self.accel.accel_z),
+            DisplayFloat(self.gyro.gyro_x), DisplayFloat(self.gyro.gyro_y), DisplayFloat(self.gyro.gyro_z)
         )
     }
 }
@@ -203,36 +214,7 @@ impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
             ).await?;
         }
 
-
-        // For debug printing
-        macro_rules! split_float {
-            ($val:expr) => {{
-                let sign = if $val < 0.0 { "-" } else { "" };
-                let abs_val = $val.abs();
-                let int_part = abs_val as i32;
-                let frac_part = ((abs_val - int_part as f32) * 1000.0) as u32;
-                (sign, int_part, frac_part)
-            }};
-        }
-
-        // Extract the safe parts
-        let (ax_s, ax_i, ax_f) = split_float!(self.data.accel.accel_x);
-        let (ay_s, ay_i, ay_f) = split_float!(self.data.accel.accel_y);
-        let (az_s, az_i, az_f) = split_float!(self.data.accel.accel_z);
-        let (gx_s, gx_i, gx_f) = split_float!(self.data.gyro.gyro_x);
-        let (gy_s, gy_i, gy_f) = split_float!(self.data.gyro.gyro_y);
-        let (gz_s, gz_i, gz_f) = split_float!(self.data.gyro.gyro_z);
-
-        // Log with the explicit sign slot '{=str}' directly in front of the integer block
-        defmt::println!(
-            "Accel X: {=str}{=i32}.{=u32:03} Y: {=str}{=i32}.{=u32:03} Z: {=str}{=i32}.{=u32:03} Gyro X: {=str}{=i32}.{=u32:03} Y: {=str}{=i32}.{=u32:03} Z: {=str}{=i32}.{=u32:03}",
-            ax_s, ax_i, ax_f,
-            ay_s, ay_i, ay_f,
-            az_s, az_i, az_f,
-            gx_s, gx_i, gx_f,
-            gy_s, gy_i, gy_f,
-            gz_s, gz_i, gz_f
-        );
+        defmt::println!("{}", self.data);
 
         Ok(())
     }

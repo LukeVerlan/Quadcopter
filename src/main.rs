@@ -71,7 +71,7 @@ mod app {
     #[init]
     fn init(cx: init::Context) -> (Shared, Local) {
         
-        let dp = Peripherals::take().unwrap();
+        let dp = cx.device;
 
         let mut rcc = dp.RCC.freeze(
             Config::hse(25.MHz())

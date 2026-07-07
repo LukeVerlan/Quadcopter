@@ -119,7 +119,7 @@ impl X4r {
     pub fn parse(&mut self, buf: &[u8; SBUS_MESSAGE_LENGTH]) -> Result<(), X4rError> {
 
         // Verify Header and footer
-        if buf[0] != SYNC_BYTE || buf[24] != FOOTER_BYTE {
+        if buf[0] != SYNC_BYTE || buf[SBUS_MESSAGE_LENGTH - 1] != FOOTER_BYTE {
 
             self.data = X4rData {
                 status: X4rError::FramingErr,
@@ -129,7 +129,7 @@ impl X4r {
                 yaw: 0.0,
             };
 
-            defmt::println!("Framing Error");
+            // defmt::println!("Framing Error");
             return Err(X4rError::FramingErr);
         }
 
@@ -145,7 +145,7 @@ impl X4r {
                 yaw: 0.0,
             };
 
-            defmt::println!("FailSafe Error");
+            // defmt::println!("FailSafe Error");
 
             return Err(X4rError::FailSafeErr);
         }
@@ -178,7 +178,7 @@ impl X4r {
             yaw
         };
 
-        defmt::println!("Valid: \t {}", self.data);
+        // defmt::println!("Valid: \t {}", self.data);
 
         Ok(())
 

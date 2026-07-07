@@ -76,9 +76,11 @@ mod app {
         x4r_dma: Option<X4rDmaTransfer>,
         x4r_data: X4rData,
 
+        // Imu
         imu_data: IMUData,
-        gps_data: GpsData,
 
+        // Gps
+        gps_data: GpsData,
         gps: Neom8n<Rx<USART2>, Tx<USART2>>
 
     }
@@ -289,6 +291,7 @@ mod app {
 
     }
 
+    // GPS is lower priority
     #[task(shared=[gps, gps_data], priority = 1)]
     async fn parse_gps_message(_cx: parse_gps_message::Context) {
         let mut gps = _cx.shared.gps;
@@ -304,6 +307,7 @@ mod app {
         });
     }
 
+    // X4R priority binds are all the same
     #[task(binds=DMA2_STREAM2, local=[x4r, x4r_dma_buf], shared=[x4r_dma, x4r_data], priority = 2)]
     fn rx_telemetry_message(cx: rx_telemetry_message::Context) {
 
@@ -341,7 +345,8 @@ mod app {
     }
 
 
-    #[task(binds = USART1, shared = [x4r_dma], priority = 1)]
+    // X4r binds are all the same priority
+    #[task(binds = USART1, shared = [x4r_dma], priority = 3)]
     fn check_dma(cx: check_dma::Context) {
         let mut dma = cx.shared.x4r_dma;
 
@@ -360,7 +365,8 @@ mod app {
         });
     }
 
-    #[task(shared = [x4r_dma], priority = 1)]
+    // X4r is the second highest prioity
+    #[task(shared = [x4r_dma], priority = 3)]
     async fn perform_dma_reset(mut cx: perform_dma_reset::Context) {
         let released = cx.shared.x4r_dma.lock(|dma| {
             dma.take().map(|xfer| xfer.release())
@@ -375,8 +381,6 @@ mod app {
         // Message frame size, skip the rest of this message to pick up the next freshly
         Mono::delay(3.millis()).await;
 
-        defmt::println!("Resetting the DMA");
-
         let config = get_x4r_dma_config();
 
         let mut new_xfer = X4rDmaTransfer::init_peripheral_to_memory(
@@ -389,7 +393,9 @@ mod app {
         });
     }
 
-    #[task(local = [imu], shared = [imu_data], priority = 2)]
+
+    // IMU is the highest priority for flight stability
+    #[task(local = [imu], shared = [imu_data], priority = 4)]
     async fn imu_update(mut _cx: imu_update::Context) {
         let imu = _cx.local.imu;
         let mut imu_data = _cx.shared.imu_data;

@@ -46,10 +46,10 @@ USE TIM3 FOR THE PB PINS
 
 | Output | Pin Number |
 |--------|------------|
-| ESC 1  | PB1        |
-| ESC 2  | PB4        |
-| ESC 3  | PB5        |
-| ESC 4  | PB0        |
+| ESC 1  | PB4        |
+| ESC 2  | PB5        |
+| ESC 3  | PB0        |
+| ESC 4  | PB1        |
 
 ## Flashing
 

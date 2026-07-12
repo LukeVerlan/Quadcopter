@@ -31,6 +31,8 @@ mod app {
     use stm32f4xx_hal::prelude::*;
     use stm32f4xx_hal::gpio::{PC13, Output, PushPull};
 
+    use super::pwm::pwm::EscPwm;
+
     // CLI
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
@@ -93,19 +95,19 @@ mod app {
         // ------------------------------------------
 
         // 4. Initialize PWM in Hz
-        let (mut _pwm_man, (p0,p1,p2,p3)) = dp.TIM3.pwm_us(250.micros(), &mut rcc);
+        let (mut _pwm_man, (p1,p2,p3,p4)) = dp.TIM3.pwm_us(250.micros(), &mut rcc);
 
         let pin1 = gpiob.pb1.into_alternate::<2>(); // PB1 connects to TIM3_CH4
         let pin2 = gpiob.pb4.into_alternate::<2>(); // PB4 connects to TIM3_CH1
         let pin3 = gpiob.pb5.into_alternate::<2>(); // PB5 connects to TIM3_CH2
         let pin4 = gpiob.pb0.into_alternate::<2>(); // PB0 connects to TIM3_CH3
 
-        let mut p1 = p1.with(pin1);
-        let mut p2 = p2.with(pin2);
-        let mut p3 = p3.with(pin3);
-        let mut p4 = p4.with(pin4);
+        let p1 = p1.with(pin2);
+        let p2 = p2.with(pin3);
+        let p3 = p3.with(pin4);
+        let p4 = p4.with(pin1);
 
-        let esc_channels = new(p1, p2, p3, p4, 250);
+        let esc_channels = EscPwm::new(p1, p2, p3, p4, 250);
 
         // --------------------------------------------------------
 

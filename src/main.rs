@@ -22,7 +22,6 @@ static HEAP: Heap = Heap::empty();
 
 systick_monotonic!(Mono, 10_000);
 
-defmt::timestamp!("{=u32}", { 0u32 });
 
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
 mod app {
@@ -31,7 +30,9 @@ mod app {
     use stm32f4xx_hal::prelude::*;
     use stm32f4xx_hal::gpio::{PC13, Output, PushPull};
 
-    use super::pwm::pwm::EscPwm;
+    // PWM
+    use super::pwm::pwm::{EscPwm, Esc};
+    use stm32f4xx_hal::timer::PwmChannel;
 
     // CLI
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
@@ -45,6 +46,8 @@ mod app {
     use stm32f4xx_hal::pac::*;
     use stm32f4xx_hal::rcc::Config;
 
+    type Pwm =
+        EscPwm<PwmChannel<TIM3,0>, PwmChannel<TIM3,1>, PwmChannel<TIM3,2>, PwmChannel<TIM3,3>>;
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
@@ -63,6 +66,9 @@ mod app {
         // CLI
         quad_cli: QuadCli,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
+
+        // PWM
+        pwm: Pwm
     }
 
     #[init]
@@ -91,6 +97,8 @@ mod app {
         // Led
         let led = gpioc.pc13.into_push_pull_output();
 
+        defmt::println!("BOOT");
+
         // PWM SETUP
         // ------------------------------------------
 
@@ -107,7 +115,7 @@ mod app {
         let p3 = p3.with(pin4);
         let p4 = p4.with(pin1);
 
-        let esc_channels = EscPwm::new(p1, p2, p3, p4, 250);
+        let pwm = EscPwm::new(p1, p2, p3, p4, 250);
 
         // --------------------------------------------------------
 
@@ -154,10 +162,12 @@ mod app {
         let quad_cli = QuadCli::new(cli);
 
         //  -------------------------------------------
+        
+        pwm_test::spawn().unwrap();
 
         (Shared {
         }, Local {
-            led, quad_cli, usb_dev,
+            led, quad_cli, usb_dev, pwm
         })
     }
 
@@ -191,6 +201,37 @@ mod app {
         loop {
             led.toggle();
             Mono::delay(1000.millis()).await;
+        }
+    }
+
+    #[task(local=[pwm], priority = 3)]
+    async fn pwm_test(_cx: pwm_test::Context) {
+        let pwm = _cx.local.pwm;
+        let mut counter = 0;
+        let mut up = true;
+            loop {
+                defmt::println!("{}", counter);
+                let mut _res = pwm.set_esc(Esc::Esc1, counter as f32 / 100.0);
+                let mut _res = pwm.set_esc(Esc::Esc2, counter as f32 / 100.0);
+                let mut _res = pwm.set_esc(Esc::Esc3, counter as f32 / 100.0);
+                let mut _res = pwm.set_esc(Esc::Esc4, counter as f32 / 100.0);
+                if up {
+                    if counter > 99 {
+                        up = false;
+                    }
+                    else {
+                        counter += 1;
+                    }
+                }
+                else {
+                    if counter < 1 {
+                        up = true;
+                    }
+                    else {
+                        counter -= 1;
+                    }
+                }
+                Mono::delay(50.millis()).await;
         }
     }
 }

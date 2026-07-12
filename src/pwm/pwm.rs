@@ -30,7 +30,7 @@ pub struct EscChannel<P> {
 impl<P> EscChannel<P>
 where P: SetDutyCycle {
     // period_us needs to match whatever period the timer is configured with
-    pub fn new(pin: P, period_us: u32) -> Self {
+    fn new(pin: P, period_us: u32) -> Self {
         let max_duty = pin.max_duty_cycle();
         let duty_per_us = max_duty as f32 / period_us as f32;
         Self {
@@ -40,7 +40,7 @@ where P: SetDutyCycle {
         }
     }
 
-    pub fn write_pulse_us(&mut self, us: u32) {
+    fn write_pulse_us(&mut self, us: u32) {
         let us = us.clamp(PULSE_MIN_US, PULSE_MAX_US);
         let duty = (self.duty_per_us * us as f32) as u16;
         let _res = self.pin.set_duty_cycle(duty);
@@ -73,7 +73,7 @@ where
     }
 
     // write a pulse width in microseconds to one ESC
-    pub fn write_pulse(&mut self, esc: &Esc, pulse_us: u32) {
+    fn write_pulse(&mut self, esc: &Esc, pulse_us: u32) {
         match esc {
             Esc::Esc1 => self.esc1.write_pulse_us(pulse_us),
             Esc::Esc2 => self.esc2.write_pulse_us(pulse_us),

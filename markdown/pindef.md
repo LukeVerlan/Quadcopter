@@ -49,7 +49,7 @@ USE TIM3 FOR THE PB PINS
 | ESC 1  | PB1        |
 | ESC 2  | PB4        |
 | ESC 3  | PB5        |
-| ESC 4  | PA1        |
+| ESC 4  | PB0        |
 
 ## Flashing
 

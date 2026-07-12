@@ -3,6 +3,7 @@
 
 pub mod cli;
 pub mod util;
+pub mod pwm;
 
 extern crate alloc;
 
@@ -65,7 +66,7 @@ mod app {
     #[init]
     fn init(cx: init::Context) -> (Shared, Local) {
         // Clocks
-        let dp = Peripherals::take().unwrap();
+        let dp = cx.device;
 
         let mut rcc = dp.RCC.freeze(
             Config::hse(25.MHz())
@@ -88,15 +89,28 @@ mod app {
         // Led
         let led = gpioc.pc13.into_push_pull_output();
 
-        let pin = gpioa.pa8.into_alternate::<1>(); // PA8 connects to TIM1_CH1
+        // PWM SETUP
+        // ------------------------------------------
 
         // 4. Initialize PWM in Hz
-        let (mut pwm_man, (p1,p2,p3,p4)) = dp.TIM1.pwm_us(250.micros(), &mut rcc);
+        let (mut _pwm_man, (p0,p1,p2,p3)) = dp.TIM3.pwm_us(250.micros(), &mut rcc);
 
-        let mut p1 = p1.with(pin);
+        let pin1 = gpiob.pb1.into_alternate::<2>(); // PB1 connects to TIM3_CH4
+        let pin2 = gpiob.pb4.into_alternate::<2>(); // PB4 connects to TIM3_CH1
+        let pin3 = gpiob.pb5.into_alternate::<2>(); // PB5 connects to TIM3_CH2
+        let pin4 = gpiob.pb0.into_alternate::<2>(); // PB0 connects to TIM3_CH3
 
-        let percent_throttle = 0.75;
-        p1.set_duty(((p1.get_max_duty() as f32) * percent_throttle) as u16); // 3.3v * 3/4
+        let mut p1 = p1.with(pin1);
+        let mut p2 = p2.with(pin2);
+        let mut p3 = p3.with(pin3);
+        let mut p4 = p4.with(pin4);
+
+        let esc_channels = new(p1, p2, p3, p4, 250);
+
+        // --------------------------------------------------------
+
+        // CLI
+        // ---------------------------------------------
 
         let usb = USB::new(
             (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
@@ -174,7 +188,7 @@ mod app {
         let led = _cx.local.led;
         loop {
             led.toggle();
-            Mono::delay(1000.millis()).await; // Wait 500 milliseconds
+            Mono::delay(1000.millis()).await;
         }
     }
 }

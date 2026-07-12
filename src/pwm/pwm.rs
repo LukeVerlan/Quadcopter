@@ -26,7 +26,8 @@ pub struct EscChannel<P> {
     duty_per_us: f32,
 }
 
-impl<P> EscChannel<P> {
+impl<P> EscChannel<P>
+where P: embedded_hal::PwmPin {
     // period_us needs to match whatever period the timer is configured with
     pub fn new(pin: P, period_us: u32) -> Self {
         let max_duty = pin.get_max_duty();
@@ -65,7 +66,13 @@ pub struct EscPwm<P1, P2, P3, P4> {
     esc4: EscChannel<P4>,
 }
 
-impl<P1, P2, P3, P4> EscPwm<P1, P2, P3, P4> {
+impl<P1, P2, P3, P4> EscPwm<P1, P2, P3, P4>
+where
+    P1: embedded_hal::PwmPin,
+    P2: embedded_hal::PwmPin,
+    P3: embedded_hal::PwmPin,
+    P4: embedded_hal::PwmPin
+{
     // same period_us as before is shared across all four
     pub fn new(p1: P1, p2: P2, p3: P3, p4: P4, period_us: u32) -> Self {
         Self {
@@ -110,8 +117,8 @@ impl<P1, P2, P3, P4> EscPwm<P1, P2, P3, P4> {
     // read throttle as a percentage from 0.0 to 1.0, normalized to pulse width range
     pub fn read_esc(&self, esc: Esc) -> f32 {
         let us = self.read_pulse(esc);
-        let span = (PULSE_MAX_US - PULSE_MIN_US) as f32;
-        (us.saturating_sub(PULSE_MIN_US) as f32 / span).clamp(0.0, 1.0)
+        let range = (PULSE_MAX_US - PULSE_MIN_US) as f32;
+        (((us - PULSE_MIN_US) as f32) / range).clamp(0.0, 1.0)
     }
 
     // enable all four PWM outputs

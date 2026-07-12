@@ -1,5 +1,7 @@
 # Pin Definitions
 
+<img width="1138" height="797" alt="image" src="https://github.com/user-attachments/assets/a0e3f62a-1748-4869-915d-4aff0edc7ff2" />
+
 ## SPI 
 
 ### ICM42688P -- SPI2 -- TIM2

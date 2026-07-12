@@ -2,6 +2,7 @@
 // EscPwm groups all four EscChannels together, using Esc field and throttle (0.0 - 1.0) to write pulse widths
 // (use this in main)
 use embedded_hal::pwm::SetDutyCycle;
+use crate::util::util::DisplayFloat;
 
 // minimum/maximum pulse width in microseconds
 // (check actual values for our ESCs, these are placeholders)
@@ -43,6 +44,7 @@ where P: SetDutyCycle {
     fn write_pulse_us(&mut self, us: u32) {
         let us = us.clamp(PULSE_MIN_US, PULSE_MAX_US);
         let duty = (self.duty_per_us * us as f32) as u16;
+        defmt::println!("Duty {}", duty);
         let _res = self.pin.set_duty_cycle(duty);
     }
 }
@@ -74,6 +76,9 @@ where
 
     // write a pulse width in microseconds to one ESC
     fn write_pulse(&mut self, esc: &Esc, pulse_us: u32) {
+        
+        defmt::println!("Write pulse us {}", pulse_us);
+        
         match esc {
             Esc::Esc1 => self.esc1.write_pulse_us(pulse_us),
             Esc::Esc2 => self.esc2.write_pulse_us(pulse_us),
@@ -87,6 +92,9 @@ where
         if !(0.0..=1.0).contains(&throttle) {
             return Err(PwmError::OutOfRange); // reject throttle percentages outside valid range
         }
+        
+        defmt::println!("Percent: {}", DisplayFloat(throttle));
+        
         let range = (PULSE_MAX_US - PULSE_MIN_US) as f32;
         let pulse = PULSE_MIN_US + (throttle * range) as u32;
         self.write_pulse(&esc, pulse);

@@ -110,10 +110,15 @@ mod app {
         let pin3 = gpiob.pb5.into_alternate::<2>(); // PB5 connects to TIM3_CH2
         let pin4 = gpiob.pb0.into_alternate::<2>(); // PB0 connects to TIM3_CH3
 
-        let p1 = p1.with(pin2);
-        let p2 = p2.with(pin3);
-        let p3 = p3.with(pin4);
-        let p4 = p4.with(pin1);
+        let mut p1 = p1.with(pin2);
+        let mut p2 = p2.with(pin3);
+        let mut p3 = p3.with(pin4);
+        let mut p4 = p4.with(pin1);
+
+        p1.enable();
+        p2.enable();
+        p3.enable();
+        p4.enable();
 
         let pwm = EscPwm::new(p1, p2, p3, p4, 250);
 

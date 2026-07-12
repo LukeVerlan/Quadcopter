@@ -2,16 +2,16 @@
 
 # Priority 4
 
-IMU 
+IMU
 
 # Priority 3 
 
-TELEMETRY
+CONTROL LOOP
 
 # Priority 2 
 
-GPS
+TELEMETRY
 
 # Priority 1 
 
-ELSE 
+ELSE

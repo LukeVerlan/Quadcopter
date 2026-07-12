@@ -15,8 +15,10 @@ const FOOTER_BYTE: u8 = 0x00;
 const FAILSAFE_FLAG: u8 = 0x08;
 const FRAME_LOST_FLAG: u8 = 0x04;
 
-const SBUS_MIN: u16 = 172; // -100% power
-const SBUS_MAX: u16 = 1811; // 100% power
+const SBUS_MIN: u16 = 172; // -100%
+
+const SBUS_MID: u16 = 992; // 0%
+const SBUS_MAX: u16 = 1811; // 100%
 
 /// Configs
 pub const X4R_SBUS_CONFIG: SerialConfig = SerialConfig {
@@ -35,8 +37,6 @@ pub fn get_x4r_dma_config() -> SerialDmaConfig {
         .double_buffer(false)
 }
 
-
-
 /** Converts an channel value to a percent value
  *  @param val: SBUS mapped value
  *  @return Percent value between -1 and 1
@@ -44,6 +44,15 @@ pub fn get_x4r_dma_config() -> SerialDmaConfig {
 fn convert_to_percent(val: u16) -> f32 {
     if val < SBUS_MIN || val > SBUS_MAX { return f32::NAN; }
     (((val - SBUS_MIN) as f32 / (SBUS_MAX - SBUS_MIN) as f32) * 2.0) - 1.0
+}
+
+/// FlightMode of the system
+#[derive(Debug, Clone, Copy)]
+
+pub enum FlightMode {
+    Idle = 1,
+    Manual = 2,
+    Autonomous = 3,
 }
 
 /** Telemetry System */
@@ -76,10 +85,12 @@ impl Format for X4rError {
 #[derive(Debug, Clone, Copy)]
 pub struct X4rData {
     status: X4rError,
-    throttle: f32,  // CH1
-    roll:     f32,  // CH2
-    pitch:    f32,  // CH3
-    yaw:      f32,  // CH4
+    throttle:   f32,            // CH1
+    roll:       f32,            // CH2
+    pitch:      f32,            // CH3
+    yaw:        f32,            // CH4
+    safety_on : bool,           // CH5
+    mode:       FlightMode      // CH6
 }
 
 /** ToString functionality for defmt printing of the data */
@@ -99,11 +110,13 @@ impl X4r {
 
         X4r {
             data: X4rData {
-                status: X4rError::NoErr,
+                status: X4rError::FailSafeErr,
                 throttle: 0.0,
                 roll: 0.0,
                 pitch: 0.0,
                 yaw: 0.0,
+                safety_on: true,
+                mode: FlightMode::Idle
             },
         }
 
@@ -119,7 +132,7 @@ impl X4r {
     pub fn parse(&mut self, buf: &[u8; SBUS_MESSAGE_LENGTH]) -> Result<(), X4rError> {
 
         // Verify Header and footer
-        if buf[0] != SYNC_BYTE || buf[SBUS_MESSAGE_LENGTH - 1] != FOOTER_BYTE {
+        if buf[0] != SYNC_BYTE || buf[24] != FOOTER_BYTE {
 
             self.data = X4rData {
                 status: X4rError::FramingErr,
@@ -127,9 +140,11 @@ impl X4r {
                 roll: 0.0,
                 pitch: 0.0,
                 yaw: 0.0,
+                safety_on: true,
+                mode: FlightMode::Idle
             };
 
-            // defmt::println!("Framing Error");
+            defmt::println!("Framing Error");
             return Err(X4rError::FramingErr);
         }
 
@@ -143,9 +158,11 @@ impl X4r {
                 roll: 0.0,
                 pitch: 0.0,
                 yaw: 0.0,
+                safety_on: true,
+                mode: FlightMode::Idle
             };
 
-            // defmt::println!("FailSafe Error");
+            defmt::println!("FailSafe Error");
 
             return Err(X4rError::FailSafeErr);
         }
@@ -164,21 +181,38 @@ impl X4r {
         let ch4 =
                 ((buf[5] as u16) >> 1) |
                 (((buf[6] as u16) & 0x0F) << 7);
+        let ch5 =
+                (((buf[6] as u16) & 0xF0) >> 4) |
+                (((buf[7] as u16) & 0x7F) << 4);
+        let ch6 =
+                (((buf[7] as u16) & 0x80) >> 7) |
+                (buf[8] as u16) |
+                (((buf[9] as u16) & 0x03) << 9);
+
 
         let throttle = convert_to_percent(ch1);
         let roll = convert_to_percent(ch2);
         let pitch = convert_to_percent(ch3);
         let yaw = convert_to_percent(ch4);
+        let safety_on = if ch5 == SBUS_MAX { true } else { false };
+
+        let mode = match ch6 {
+            SBUS_MAX => FlightMode::Autonomous,
+            SBUS_MID => FlightMode::Manual,
+            _ => FlightMode::Idle
+        };
 
         self.data = X4rData{
             status: X4rError::NoErr,
             throttle,
             roll,
             pitch,
-            yaw
+            yaw,
+            safety_on,
+            mode
         };
 
-        // defmt::println!("Valid: \t {}", self.data);
+        defmt::println!("Valid: \t {}", self.data);
 
         Ok(())
 

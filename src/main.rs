@@ -32,7 +32,7 @@ mod app {
 
     // PWM
     use super::pwm::pwm::{EscPwm, Esc};
-    use stm32f4xx_hal::timer::PwmChannel;
+    use stm32f4xx_hal::timer::{PwmManager, PwmChannel};
 
     // CLI
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
@@ -48,6 +48,9 @@ mod app {
 
     type Pwm =
         EscPwm<PwmChannel<TIM3,0>, PwmChannel<TIM3,1>, PwmChannel<TIM3,2>, PwmChannel<TIM3,3>>;
+
+    type PwmMan =
+        PwmManager<TIM3, 1000000>;
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
@@ -68,7 +71,8 @@ mod app {
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
 
         // PWM
-        pwm: Pwm
+        pwm: Pwm,
+        pwm_man: PwmMan,
     }
 
     #[init]
@@ -103,7 +107,7 @@ mod app {
         // ------------------------------------------
 
         // 4. Initialize PWM in Hz
-        let (mut _pwm_man, (p1,p2,p3,p4)) = dp.TIM3.pwm_us(250.micros(), &mut rcc);
+        let (mut pwm_man, (p1,p2,p3,p4)) = dp.TIM3.pwm_us(20000.micros(), &mut rcc);
 
         let pin1 = gpiob.pb1.into_alternate::<2>(); // PB1 connects to TIM3_CH4
         let pin2 = gpiob.pb4.into_alternate::<2>(); // PB4 connects to TIM3_CH1
@@ -120,7 +124,7 @@ mod app {
         p3.enable();
         p4.enable();
 
-        let pwm = EscPwm::new(p1, p2, p3, p4, 250);
+        let pwm = EscPwm::new(p1, p2, p3, p4, 20000);
 
         // --------------------------------------------------------
 
@@ -169,10 +173,11 @@ mod app {
         //  -------------------------------------------
         
         pwm_test::spawn().unwrap();
+        blink::spawn().unwrap();
 
         (Shared {
         }, Local {
-            led, quad_cli, usb_dev, pwm
+            led, quad_cli, usb_dev, pwm, pwm_man
         })
     }
 
@@ -209,19 +214,20 @@ mod app {
         }
     }
 
-    #[task(local=[pwm], priority = 3)]
+    #[task(local=[pwm, pwm_man], priority = 3)]
     async fn pwm_test(_cx: pwm_test::Context) {
         let pwm = _cx.local.pwm;
+        let mut pwm_man = _cx.local.pwm_man;
         let mut counter = 0;
         let mut up = true;
             loop {
-                defmt::println!("{}", counter);
+
                 let mut _res = pwm.set_esc(Esc::Esc1, counter as f32 / 100.0);
                 let mut _res = pwm.set_esc(Esc::Esc2, counter as f32 / 100.0);
                 let mut _res = pwm.set_esc(Esc::Esc3, counter as f32 / 100.0);
                 let mut _res = pwm.set_esc(Esc::Esc4, counter as f32 / 100.0);
                 if up {
-                    if counter > 99 {
+                    if counter > 24 {
                         up = false;
                     }
                     else {
@@ -236,7 +242,7 @@ mod app {
                         counter -= 1;
                     }
                 }
-                Mono::delay(50.millis()).await;
+                Mono::delay(200.millis()).await;
         }
     }
 }

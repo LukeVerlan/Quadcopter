@@ -231,12 +231,29 @@ impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
 
     // TODO: Notch filter setup
     async fn notch_filter_setup(&mut self){
-        // Implement notch filter setup
+        todo!()
     }
 
     // TODO: Anti Alias Filter
     async fn aaf_filter_setup(&mut self) {
-        // Implement anti-alias filtering setup
+        todo!()
+    }
+
+    async fn ui_filter_setup(&mut self) -> Result<(), ImuError<SPI::Error>> {
+
+        // Ui filter mode
+        self.spi_write_reg(
+            Bank0::GyroConfig1 as u8,
+            0x0A
+        ).await?; // Mode 3
+
+        // Low pass filter
+        self.spi_write_reg(
+            Bank0::GyroConfig1 as u8,
+            0x06
+        ).await?; // ODR/20 low pass
+
+        Ok(())
     }
 
     async fn spi_write_reg(&mut self, addr: u8, data: u8) -> Result<(), ImuError<SPI::Error>> {

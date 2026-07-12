@@ -1,10 +1,10 @@
 
 
 /// Constants
-pub const GYRO_ODR: GyroODR = GyroODR::Khz4;
+pub const GYRO_ODR: GyroODR = GyroODR::Khz8;
 pub const GYRO_FSR: GyroFSR = GyroFSR::Dps2000;
 
-pub const ACCEL_ODR: AccelODR = AccelODR::Khz4;
+pub const ACCEL_ODR: AccelODR = AccelODR::Khz8;
 pub const ACCEL_FSR: AccelFSR = AccelFSR::G16;
 pub const INTERRUPTS_ENABLED: bool = false;
 

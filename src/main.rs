@@ -207,7 +207,14 @@ mod app {
     async fn imu_update(mut _cx: imu_update::Context) {
         let imu = _cx.local.imu;
         let mut imu_data = _cx.shared.imu_data;
-        imu.startup(&mut Mono).await.unwrap();
+
+        let mut res = imu.startup(&mut Mono).await;
+
+        while !res.is_ok() { // Verifying WhoAmI
+            Mono::delay(50.millis()).await;
+            res = imu.startup(&mut Mono).await;
+        }
+
         loop {
             // Update vals
             imu.update().await.unwrap();

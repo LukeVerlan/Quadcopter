@@ -256,8 +256,17 @@ impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
         // Power on delay
         delay.delay_ms(100).await;
 
+        self.soft_reset().await?;
+
+        delay.delay_ms(100).await;
+
         // Verify the Who am I
-        let _who_am_i = self.spi_read_reg(Bank0::WhoAmI as u8).await?;
+        let who_am_i = self.spi_read_reg(Bank0::WhoAmI as u8).await?;
+        
+        if(who_am_i != WHO_AM_I) {
+            defmt::println!("WhoAmI Err");
+            return Err(ImuError::WhoAmI);
+        }
 
         delay.delay_ms(100).await;
 

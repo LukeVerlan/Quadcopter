@@ -133,8 +133,6 @@ mod app {
         // delay clock startup
         Mono::start(cx.core.SYST, rcc.clocks.sysclk().to_Hz());
 
-        defmt::println!("BOOT");
-
         // CTRL CODE HERE
 
         // Gpio pins
@@ -166,7 +164,6 @@ mod app {
 
         // CLI SETUP
         // ---------------------------------------------------------------------
-        defmt::println!("BOOT");
 
         // PWM SETUP
         // ------------------------------------------

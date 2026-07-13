@@ -213,9 +213,7 @@ impl <SPI: SpiDevice + 'static> Icm42688p<SPI> {
                 Bank0::IntStatus as u8
             ).await?;
         }
-
-        defmt::println!("{}", self.data);
-
+        
         Ok(())
     }
 

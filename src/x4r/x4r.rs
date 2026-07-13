@@ -42,8 +42,28 @@ pub fn get_x4r_dma_config() -> SerialDmaConfig {
  *  @return Percent value between -1 and 1
  */
 fn convert_to_percent(val: u16) -> f32 {
-    if val < SBUS_MIN || val > SBUS_MAX { return f32::NAN; }
-    (((val - SBUS_MIN) as f32 / (SBUS_MAX - SBUS_MIN) as f32) * 2.0) - 1.0
+    if val < SBUS_MIN || val > SBUS_MAX {
+        return f32::NAN;
+    }
+
+    let mut percent =
+        ((val - SBUS_MIN) as f32 / (SBUS_MAX - SBUS_MIN) as f32) * 2.0 - 1.0;
+
+    // Center deadband
+    if percent.abs() < 0.01 {
+        percent = 0.0;
+    }
+
+    // Clamp numerical errors
+    if percent > 0.988 {
+        percent = 1.0;
+    }
+
+    else if percent < -0.988 {
+        percent = -1.0;
+    }
+
+    percent
 }
 
 /// FlightMode of the system
@@ -53,6 +73,16 @@ pub enum FlightMode {
     Idle = 1,
     Manual = 2,
     Autonomous = 3,
+}
+
+impl Format for FlightMode {
+    fn format(&self, fmt: Formatter) {
+        match self {
+            &FlightMode::Idle => {write!(fmt, "Idle")}
+            &FlightMode::Manual => {write!(fmt, "Manual")}
+            &FlightMode::Autonomous => {write!(fmt, "Auto")}
+        }
+    }
 }
 
 /** Telemetry System */
@@ -96,9 +126,10 @@ pub struct X4rData {
 /** ToString functionality for defmt printing of the data */
 impl Format for X4rData {
     fn format(&self, fmt: Formatter) {
-        write!(fmt, "Error: {=?} \t Throttle {} \t Roll {} \t Pitch {} \t Yaw {} \n",
+        write!(fmt, "Error: {=?} \t Throttle {} \t Roll {} \t Pitch {} \t Yaw {} \t \
+                    Safety_on {} \t Mode {}\n",
                self.status, DisplayFloat(self.throttle), DisplayFloat(self.roll),
-               DisplayFloat(self.pitch), DisplayFloat(self.yaw))
+               DisplayFloat(self.pitch), DisplayFloat(self.yaw), self.safety_on, self.mode)
     }
 }
 
@@ -111,7 +142,7 @@ impl X4r {
         X4r {
             data: X4rData {
                 status: X4rError::FailSafeErr,
-                throttle: 0.0,
+                throttle: -0.0,
                 roll: 0.0,
                 pitch: 0.0,
                 yaw: 0.0,
@@ -136,7 +167,7 @@ impl X4r {
 
             self.data = X4rData {
                 status: X4rError::FramingErr,
-                throttle: 0.0,
+                throttle: -0.0,
                 roll: 0.0,
                 pitch: 0.0,
                 yaw: 0.0,
@@ -154,7 +185,7 @@ impl X4r {
 
             self.data = X4rData {
                 status: X4rError::FailSafeErr,
-                throttle: 0.0,
+                throttle: -0.0,
                 roll: 0.0,
                 pitch: 0.0,
                 yaw: 0.0,
@@ -186,7 +217,7 @@ impl X4r {
                 (((buf[7] as u16) & 0x7F) << 4);
         let ch6 =
                 (((buf[7] as u16) & 0x80) >> 7) |
-                (buf[8] as u16) |
+                ((buf[8] as u16) << 1) |
                 (((buf[9] as u16) & 0x03) << 9);
 
 
@@ -195,7 +226,6 @@ impl X4r {
         let pitch = convert_to_percent(ch3);
         let yaw = convert_to_percent(ch4);
         let safety_on = if ch5 == SBUS_MAX { true } else { false };
-
         let mode = match ch6 {
             SBUS_MAX => FlightMode::Autonomous,
             SBUS_MID => FlightMode::Manual,
@@ -212,10 +242,9 @@ impl X4r {
             mode
         };
 
-        defmt::println!("Valid: \t {}", self.data);
+        defmt::println!("Valid: \t {}, Ch6 {}", self.data, ch6);
 
         Ok(())
-
     }
 
     /** Returns the current stored telem data */

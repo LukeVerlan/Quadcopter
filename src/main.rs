@@ -297,7 +297,7 @@ mod app {
             pwm,
             pwm_man
         })
-    }
+    } // INIT
 
     // Try CLI here
     #[idle(local = [cli, usb_dev], shared=[imu_data, gps_data])]
@@ -331,7 +331,7 @@ mod app {
                 }
             }
         }
-    }
+    } // CLI
 
 
     // GPS UART RX interrupt handler
@@ -355,7 +355,7 @@ mod app {
         gps_data.lock(|gps_data| {
             *gps_data = gps_data_clone
         });
-    }
+    } // GPS
 
     // X4R priority binds are all the same
     #[task(binds=DMA2_STREAM2, local=[x4r, x4r_dma_buf], shared=[x4r_dma, x4r_data], priority = 2)]
@@ -390,7 +390,7 @@ mod app {
 
         // Update the shared data
         shared.x4r_data.lock(|data| { *data = local.x4r.get_data(); })
-    }
+    } // X4R
 
 
     // X4r binds are all the same priority
@@ -410,8 +410,9 @@ mod app {
             if remaining != 0 && remaining != SBUS_MESSAGE_LENGTH as u16 {
                 perform_dma_reset::spawn().ok();
             }
+
         });
-    }
+    } // X4R
 
     // X4r is the second highest prioity
     #[task(shared = [x4r_dma], priority = 3)]
@@ -422,7 +423,6 @@ mod app {
 
         let Some((stream, rx, buf, _)) = released else {
             // Already taken by another invocation — nothing to reset.
-            defmt::println!("perform_dma_reset: skipped, already in progress");
             return;
         };
 
@@ -439,7 +439,7 @@ mod app {
         cx.shared.x4r_dma.lock(|dma| {
             *dma = Some(new_xfer);
         });
-    }
+    } // X4R
 
 
     // IMU is the highest priority for flight stability
@@ -459,7 +459,7 @@ mod app {
 
             Mono::delay(250.micros()).await;
         }
-    }
+    } // X4R
 
 
     #[task(local=[pwm, pwm_man], priority = 3)]
@@ -488,5 +488,6 @@ mod app {
             }
             Mono::delay(200.millis()).await;
         }
-    }
-}
+    } // PWM
+
+} // App

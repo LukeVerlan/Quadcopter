@@ -174,8 +174,7 @@ impl X4r {
                 safety_on: true,
                 mode: FlightMode::Idle
             };
-
-            defmt::println!("Framing Error");
+            
             return Err(X4rError::FramingErr);
         }
 
@@ -192,8 +191,6 @@ impl X4r {
                 safety_on: true,
                 mode: FlightMode::Idle
             };
-
-            defmt::println!("FailSafe Error");
 
             return Err(X4rError::FailSafeErr);
         }
@@ -241,8 +238,6 @@ impl X4r {
             safety_on,
             mode
         };
-
-        defmt::println!("Valid: \t {}, Ch6 {}", self.data, ch6);
 
         Ok(())
     }

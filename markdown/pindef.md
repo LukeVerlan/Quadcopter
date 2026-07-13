@@ -1,5 +1,7 @@
 # Pin Definitions
 
+<img width="1138" height="797" alt="image" src="https://github.com/user-attachments/assets/a0e3f62a-1748-4869-915d-4aff0edc7ff2" />
+
 ## SPI 
 
 ### ICM42688P -- SPI2 -- TIM2
@@ -29,7 +31,7 @@
 
 ## USART
 
-### NEO-M8N
+### NEO-M8N -- USART2
 
 | Output | Pin Number |
 |--------|------------|
@@ -38,12 +40,16 @@
 
 ## PWM
 
+USE TIM5 FOR THE PA PINS
+
+USE TIM3 FOR THE PB PINS
+
 | Output | Pin Number |
 |--------|------------|
-| ESC 1  | PB1        |
-| ESC 2  | PB10       |
-| ESC 3  | PA0        |
-| ESC 4  | PA1        |
+| ESC 1  | PB4        |
+| ESC 2  | PB5        |
+| ESC 3  | PB0        |
+| ESC 4  | PB1        |
 
 ## Flashing
 
@@ -63,7 +69,7 @@
 | Output | Pin Number |
 |--------|------------|
 | RX     | PA10       |
-| TX     | PA 9       | 
+| TX     | PA9        | 
 
 TX is unused for telemetry
 

@@ -6,11 +6,12 @@ pub mod neom8n;
 pub mod icm42688p;
 pub mod util;
 pub mod x4r;
+pub mod pwm;
 
 extern crate alloc;
 
-use panic_probe as _;
 use defmt_rtt as _;
+use panic_probe as _;
 
 use rtic::app;
 use rtic_monotonics::systick::prelude::*;
@@ -26,7 +27,6 @@ systick_monotonic!(Mono, 10_000);
 
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1, EXTI2])]
 mod app {
-
     use super::*;
     use super::icm42688p::icm42688p::{
         Icm42688p, IMUData, imu_setup
@@ -35,6 +35,11 @@ mod app {
     use super::cli::cli::{QuadCli, Writer};
     use stm32f4xx_hal::prelude::*;
 
+    // PWM
+    use super::pwm::pwm::{EscPwm, Esc};
+    use stm32f4xx_hal::timer::{PwmManager, PwmChannel};
+
+    // CLI
     use embedded_hal_bus::spi::ExclusiveDevice;
     use stm32f4xx_hal::gpio::{
         PC13, Output, PushPull,     // LED
@@ -46,6 +51,7 @@ mod app {
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
     use embedded_cli::cli::{CliBuilder};
+    use embedded_hal::pwm::SetDutyCycle;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use stm32f4xx_hal::serial::{Rx, Tx, Serial, Event};
     use usb_device::bus::UsbBusAllocator;
@@ -56,22 +62,27 @@ mod app {
     use crate::x4r::x4r::{X4rData, X4r, X4rError, SBUS_MESSAGE_LENGTH, X4R_SBUS_CONFIG, get_x4r_dma_config};
 
     use stm32f4xx_hal::rcc::Config;
+    use stm32f4xx_hal::timer::{FTimer, Timer};
+    use stm32f4xx_hal::pac::*;
 
     type X4rDmaTransfer = // From the DMA Table
-        Transfer<Stream2<DMA2>, 4, Rx<USART1, u8>, PeripheralToMemory, &'static mut [u8; SBUS_MESSAGE_LENGTH]>;
+    Transfer<Stream2<DMA2>, 4, Rx<USART1, u8>, PeripheralToMemory, &'static mut [u8; SBUS_MESSAGE_LENGTH]>;
+    type Pwm =
+    EscPwm<PwmChannel<TIM3, 0>, PwmChannel<TIM3, 1>, PwmChannel<TIM3, 2>, PwmChannel<TIM3, 3>>;
+
+    type PwmMan =
+    PwmManager<TIM3, 1000000>;
 
     type Imu =
-        Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, DelayUs<TIM2>>>;
+    Icm42688p<ExclusiveDevice<Spi<SPI2>, PB12<Output<PushPull>>, DelayUs<TIM2>>>;
 
     // CLI
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
     static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // 4096 bytes of memory for the serial port
 
-
     #[shared]
     struct Shared {
-
         // Telem
         x4r_dma: Option<X4rDmaTransfer>,
         x4r_data: X4rData,
@@ -82,12 +93,10 @@ mod app {
         // Gps
         gps_data: GpsData,
         gps: Neom8n<Rx<USART2>, Tx<USART2>>
-
     }
 
     #[local]
     struct Local {
-
         // Imu
         imu: Imu,
 
@@ -100,7 +109,11 @@ mod app {
 
         // Telemetry
         x4r: X4r,
-        x4r_dma_buf: Option<&'static mut [u8; SBUS_MESSAGE_LENGTH]>
+        x4r_dma_buf: Option<&'static mut [u8; SBUS_MESSAGE_LENGTH]>,
+
+        // PWM
+        pwm: Pwm,
+        pwm_man: PwmMan,
     }
 
     #[init(local = [x4r_dma_buf1: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH],
@@ -153,6 +166,35 @@ mod app {
 
         // CLI SETUP
         // ---------------------------------------------------------------------
+        defmt::println!("BOOT");
+
+        // PWM SETUP
+        // ------------------------------------------
+
+        // 4. Initialize PWM in Hz
+        let (mut pwm_man, (p1, p2, p3, p4)) = dp.TIM3.pwm_us(20000.micros(), &mut rcc);
+
+        let pin1 = gpiob.pb1.into_alternate::<2>(); // PB1 connects to TIM3_CH4
+        let pin2 = gpiob.pb4.into_alternate::<2>(); // PB4 connects to TIM3_CH1
+        let pin3 = gpiob.pb5.into_alternate::<2>(); // PB5 connects to TIM3_CH2
+        let pin4 = gpiob.pb0.into_alternate::<2>(); // PB0 connects to TIM3_CH3
+
+        let mut p1 = p1.with(pin2);
+        let mut p2 = p2.with(pin3);
+        let mut p3 = p3.with(pin4);
+        let mut p4 = p4.with(pin1);
+
+        p1.enable();
+        p2.enable();
+        p3.enable();
+        p4.enable();
+
+        let pwm = EscPwm::new(p1, p2, p3, p4, 20000);
+
+        // --------------------------------------------------------
+
+        // CLI
+        // ---------------------------------------------
 
         let usb = USB::new(
             (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
@@ -160,6 +202,7 @@ mod app {
             &rcc.clocks
         );
 
+        // USB setup
         let (usb_dev, writer) = unsafe {
             USB_BUS = Some(UsbBus::new(usb, &mut EP_MEMORY));
             let usb_bus_ref = USB_BUS.as_ref().unwrap();
@@ -176,6 +219,7 @@ mod app {
             (usb_dev, writer)
         };
 
+        // CLI buffers
         let (command_buffer, history_buffer) = unsafe {
             static mut COMMAND_BUFFER: [u8; 40] = [0; 40];
             static mut HISTORY_BUFFER: [u8; 41] = [0; 41];
@@ -184,6 +228,7 @@ mod app {
             (COMMAND_BUFFER.as_mut(), HISTORY_BUFFER.as_mut())
         };
 
+        // Build the CLI object
         let cli = CliBuilder::default()
             .writer(writer)
             .command_buffer(command_buffer)
@@ -191,11 +236,12 @@ mod app {
             .build()
             .expect("Cli failed to init");
 
-        let cli = QuadCli::new(
-            cli
-        );
+        // Pass the cli object to our cli
+        let cli = QuadCli::new(cli);
 
-        // -------------------------------------------
+        //  -------------------------------------------
+
+        pwm_test::spawn().unwrap();
 
         // Telemetry setup
         // -----------------------------------------
@@ -236,16 +282,26 @@ mod app {
         let gps_data = gps.get_data();
 
         (Shared {
-            imu_data, gps_data, gps, x4r_dma: Some(x4r_dma), x4r_data
+            imu_data,
+            gps_data,
+            gps,
+            x4r_dma: Some(x4r_dma),
+            x4r_data
         }, Local {
-            imu, led, cli, usb_dev, x4r, x4r_dma_buf: Some(cx.local.x4r_dma_buf2)
+            imu,
+            led,
+            cli,
+            usb_dev,
+            x4r,
+            x4r_dma_buf: Some(cx.local.x4r_dma_buf2),
+            pwm,
+            pwm_man
         })
     }
 
     // Try CLI here
     #[idle(local = [cli, usb_dev], shared=[imu_data, gps_data])]
     fn idle(mut _cx: idle::Context) -> ! {
-
         let cli = _cx.local.cli;
         let usb_dev = _cx.local.usb_dev;
         let ser = unsafe { SER.as_mut().unwrap() };
@@ -256,7 +312,6 @@ mod app {
 
         // Write base cli
         loop {
-
             let imu_data = imu.lock(|imu| { imu.clone() });
             let gps_data = gps.lock(|gps| { gps.clone() });
 
@@ -273,22 +328,17 @@ mod app {
                     for byte in &buf[0..count] {
                         cli.process(*byte);
                     }
-
                 }
             }
         }
-
     }
+
 
     // GPS UART RX interrupt handler
     #[task(binds = USART2, shared=[gps], local=[led])]
     fn receive_gps_message(_cx: receive_gps_message::Context) {
-        let led = _cx.local.led;
         let mut gps = _cx.shared.gps;
-        gps.lock(|gps| {
-                if gps.build_message() { led.toggle(); parse_gps_message::spawn().unwrap(); }
-        });
-
+        gps.lock(|gps| { gps.build_message(); });
     }
 
     // GPS is lower priority
@@ -310,7 +360,6 @@ mod app {
     // X4R priority binds are all the same
     #[task(binds=DMA2_STREAM2, local=[x4r, x4r_dma_buf], shared=[x4r_dma, x4r_data], priority = 2)]
     fn rx_telemetry_message(cx: rx_telemetry_message::Context) {
-
         let local = cx.local;
         let mut shared = cx.shared;
 
@@ -337,11 +386,10 @@ mod app {
         *local.x4r_dma_buf = Some(buf);
 
         // Parse out the packet
-         let _res =local.x4r.parse(local.x4r_dma_buf.as_ref().unwrap());
+        let _res = local.x4r.parse(local.x4r_dma_buf.as_ref().unwrap());
 
         // Update the shared data
-        shared.x4r_data.lock(|data| {  *data = local.x4r.get_data(); })
-
+        shared.x4r_data.lock(|data| { *data = local.x4r.get_data(); })
     }
 
 
@@ -410,6 +458,35 @@ mod app {
             });
 
             Mono::delay(250.micros()).await;
+        }
+    }
+
+
+    #[task(local=[pwm, pwm_man], priority = 3)]
+    async fn pwm_test(_cx: pwm_test::Context) {
+        let pwm = _cx.local.pwm;
+        let mut pwm_man = _cx.local.pwm_man;
+        let mut counter = 0;
+        let mut up = true;
+        loop {
+            let mut _res = pwm.set_esc(Esc::Esc1, counter as f32 / 100.0);
+            let mut _res = pwm.set_esc(Esc::Esc2, counter as f32 / 100.0);
+            let mut _res = pwm.set_esc(Esc::Esc3, counter as f32 / 100.0);
+            let mut _res = pwm.set_esc(Esc::Esc4, counter as f32 / 100.0);
+            if up {
+                if counter > 24 {
+                    up = false;
+                } else {
+                    counter += 1;
+                }
+            } else {
+                if counter < 1 {
+                    up = true;
+                } else {
+                    counter -= 1;
+                }
+            }
+            Mono::delay(200.millis()).await;
         }
     }
 }

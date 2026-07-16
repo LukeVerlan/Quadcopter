@@ -2,7 +2,6 @@
 #![no_main]
 
 pub mod cli;
-pub mod neom8n;
 pub mod icm42688p;
 pub mod util;
 pub mod x4r;
@@ -14,19 +13,22 @@ use defmt_rtt as _;
 use panic_probe as _;
 
 use rtic::app;
-use rtic_monotonics::systick::prelude::*;
 use embedded_alloc::LlffHeap as Heap;
+use rtic_monotonics::fugit::{TimerDurationU32, TimerDurationU64};
 
 // Subject to change
 const HEAP_SIZE: usize = 4096;
+const IMU_TIME_US: TimerDurationU64<1_000_000> = TimerDurationU64::from_ticks(250); // 250 micros
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-systick_monotonic!(Mono, 10_000);
+// systick_monotonic!(Mono, 10_000);
 
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1, EXTI2])]
 mod app {
+    use rtic_monotonics::Monotonic;
+    use rtic_monotonics::stm32_tim5_monotonic;
     use super::*;
     use super::icm42688p::icm42688p::{
         Icm42688p, IMUData, imu_setup
@@ -37,7 +39,7 @@ mod app {
 
     // PWM
     use super::pwm::pwm::{EscPwm, Esc};
-    use stm32f4xx_hal::timer::{PwmManager, PwmChannel};
+    use stm32f4xx_hal::timer::{PwmManager, PwmChannel, Counter, Timer};
 
     // CLI
     use embedded_hal_bus::spi::ExclusiveDevice;
@@ -52,18 +54,19 @@ mod app {
     use usbd_serial::SerialPort;
     use embedded_cli::cli::{CliBuilder};
     use embedded_hal::pwm::SetDutyCycle;
+    use rtic_monotonics::fugit::ExtU64;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use stm32f4xx_hal::serial::{Rx, Tx, Serial, Event};
     use usb_device::bus::UsbBusAllocator;
-    use super::neom8n::neom8n::{Neom8n, GpsData, gps_setup};
-    use stm32f4xx_hal::pac::USART2;
+
     use stm32f4xx_hal::timer::DelayUs;
     use stm32f4xx_hal::dma::{DmaFlag, PeripheralToMemory, Stream2, StreamsTuple, Transfer};
-    use crate::x4r::x4r::{X4rData, X4r, X4rError, SBUS_MESSAGE_LENGTH, X4R_SBUS_CONFIG, get_x4r_dma_config};
+    use crate::x4r::x4r::{X4rData, X4r, SBUS_MESSAGE_LENGTH, X4R_SBUS_CONFIG, get_x4r_dma_config};
 
     use stm32f4xx_hal::rcc::Config;
-    use stm32f4xx_hal::timer::{FTimer, Timer};
-    use stm32f4xx_hal::pac::*;
+    use stm32f4xx_hal::timer::{FTimer, CounterUs};
+
+    stm32_tim5_monotonic!(Mono, 1_000_000);
 
     type X4rDmaTransfer = // From the DMA Table
     Transfer<Stream2<DMA2>, 4, Rx<USART1, u8>, PeripheralToMemory, &'static mut [u8; SBUS_MESSAGE_LENGTH]>;
@@ -90,9 +93,6 @@ mod app {
         // Imu
         imu_data: IMUData,
 
-        // Gps
-        gps_data: GpsData,
-        gps: Neom8n<Rx<USART2>, Tx<USART2>>
     }
 
     #[local]
@@ -114,6 +114,8 @@ mod app {
         // PWM
         pwm: Pwm,
         pwm_man: PwmMan,
+
+
     }
 
     #[init(local = [x4r_dma_buf1: [u8; SBUS_MESSAGE_LENGTH] = [0; SBUS_MESSAGE_LENGTH],
@@ -131,7 +133,7 @@ mod app {
         unsafe { embedded_alloc::init!(HEAP, HEAP_SIZE); }
 
         // delay clock startup
-        Mono::start(cx.core.SYST, rcc.clocks.sysclk().to_Hz());
+        Mono::start(rcc.clocks.timclk1().raw());
 
         // CTRL CODE HERE
 
@@ -154,14 +156,6 @@ mod app {
             dp.TIM2
         );
 
-        // GPS
-        let mut gps = gps_setup(
-            dp.USART2,
-            gpioa.pa2,
-            gpioa.pa3,
-            &mut rcc
-        );
-
         // CLI SETUP
         // ---------------------------------------------------------------------
 
@@ -169,7 +163,7 @@ mod app {
         // ------------------------------------------
 
         // 4. Initialize PWM in Hz
-        let (mut pwm_man, (p1, p2, p3, p4)) = dp.TIM3.pwm_us(20000.micros(), &mut rcc);
+        let (mut pwm_man, (p1, p2, p3, p4)) = dp.TIM3.pwm_us(TimerDurationU32::from_ticks(20000), &mut rcc);
 
         let pin1 = gpiob.pb1.into_alternate::<2>(); // PB1 connects to TIM3_CH4
         let pin2 = gpiob.pb4.into_alternate::<2>(); // PB4 connects to TIM3_CH1
@@ -238,8 +232,6 @@ mod app {
 
         //  -------------------------------------------
 
-        pwm_test::spawn().unwrap();
-
         // Telemetry setup
         // -----------------------------------------
 
@@ -274,14 +266,11 @@ mod app {
         // ---------------------------------------------
 
         imu_update::spawn().unwrap();
-        // GPS SETUP
 
-        let gps_data = gps.get_data();
+        // GPS SETUP
 
         (Shared {
             imu_data,
-            gps_data,
-            gps,
             x4r_dma: Some(x4r_dma),
             x4r_data
         }, Local {
@@ -297,25 +286,18 @@ mod app {
     } // INIT
 
     // Try CLI here
-    #[idle(local = [cli, usb_dev], shared=[imu_data, gps_data])]
+    #[idle(local = [cli, usb_dev], shared=[imu_data])]
     fn idle(mut _cx: idle::Context) -> ! {
         let cli = _cx.local.cli;
         let usb_dev = _cx.local.usb_dev;
         let ser = unsafe { SER.as_mut().unwrap() };
         let mut imu = _cx.shared.imu_data;
-        let mut gps = _cx.shared.gps_data;
 
         ser.write(b"Quadcopter Online\n").unwrap();
 
         // Write base cli
         loop {
             let imu_data = imu.lock(|imu| { imu.clone() });
-            let gps_data = gps.lock(|gps| { gps.clone() });
-
-
-            cli.print_state(
-                &imu_data, &gps_data, ser, Mono::now().ticks()
-            );
 
             if usb_dev.poll(&mut [ser]) {
 
@@ -330,29 +312,18 @@ mod app {
         }
     } // CLI
 
+    // Main flight logic
+    #[task(local=[pwm, pwm_man], shared=[imu_data, x4r_data], priority=3)]
+    async fn flight_logic(cx: flight_logic::Context) {
+        let pwm = cx.local.pwm;
+        let imu = cx.shared.imu_data;
+        let x4r_data = cx.shared.x4r_data;
 
-    // GPS UART RX interrupt handler
-    #[task(binds = USART2, shared=[gps], local=[led])]
-    fn receive_gps_message(_cx: receive_gps_message::Context) {
-        let mut gps = _cx.shared.gps;
-        gps.lock(|gps| { gps.build_message(); });
+        // Time to 4Khz
+        loop {
+
+        }
     }
-
-    // GPS is lower priority
-    #[task(shared=[gps, gps_data], priority = 1)]
-    async fn parse_gps_message(_cx: parse_gps_message::Context) {
-        let mut gps = _cx.shared.gps;
-        let mut gps_data = _cx.shared.gps_data;
-
-        let gps_data_clone = gps.lock(|gps| {
-            gps.parse_message();
-            gps.get_data()
-        });
-
-        gps_data.lock(|gps_data| {
-            *gps_data = gps_data_clone
-        });
-    } // GPS
 
     // X4R priority binds are all the same
     #[task(binds=DMA2_STREAM2, local=[x4r, x4r_dma_buf], shared=[x4r_dma, x4r_data], priority = 2)]
@@ -424,7 +395,7 @@ mod app {
         };
 
         // Message frame size, skip the rest of this message to pick up the next freshly
-        Mono::delay(3.millis()).await;
+        Mono::delay(3u64.millis()).await;
 
         let config = get_x4r_dma_config();
 
@@ -444,47 +415,20 @@ mod app {
     async fn imu_update(mut _cx: imu_update::Context) {
         let imu = _cx.local.imu;
         let mut imu_data = _cx.shared.imu_data;
+
         imu.startup(&mut Mono).await.unwrap();
+
         loop {
-            // Update vals
+            let next = Mono::now() + IMU_TIME_US;
+
             imu.update().await.unwrap();
 
-            // Safely clone the data from the imu
             imu_data.lock(|imu_data| {
                 *imu_data = imu.get_data();
             });
 
-            Mono::delay(250.micros()).await;
+            Mono::delay_until(next).await;
         }
-    } // X4R
-
-
-    #[task(local=[pwm, pwm_man], priority = 3)]
-    async fn pwm_test(_cx: pwm_test::Context) {
-        let pwm = _cx.local.pwm;
-        let mut pwm_man = _cx.local.pwm_man;
-        let mut counter = 0;
-        let mut up = true;
-        loop {
-            let mut _res = pwm.set_esc(Esc::Esc1, counter as f32 / 100.0);
-            let mut _res = pwm.set_esc(Esc::Esc2, counter as f32 / 100.0);
-            let mut _res = pwm.set_esc(Esc::Esc3, counter as f32 / 100.0);
-            let mut _res = pwm.set_esc(Esc::Esc4, counter as f32 / 100.0);
-            if up {
-                if counter > 24 {
-                    up = false;
-                } else {
-                    counter += 1;
-                }
-            } else {
-                if counter < 1 {
-                    up = true;
-                } else {
-                    counter -= 1;
-                }
-            }
-            Mono::delay(200.millis()).await;
-        }
-    } // PWM
+    } // IMU
 
 } // App

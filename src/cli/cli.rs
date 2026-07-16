@@ -7,7 +7,6 @@ use core::convert::Infallible;
 use embedded_cli::cli::{Cli, CliHandle};
 use rtic::export::atomic::AtomicBool;
 use ufmt::{uwrite, uwriteln};
-use super::super::neom8n::neom8n::GpsData;
 
 
 // Serial port writer
@@ -108,7 +107,6 @@ impl QuadCli {
     pub fn print_state(
         &mut self,
         imu_data: &IMUData,
-        gps_data: &GpsData,
         ser: *mut SerialPort<'static, UsbBus<USB>>,
         now: u32
     ) {
@@ -123,9 +121,6 @@ impl QuadCli {
 
         if self.printing_state.imu_printing.load(Ordering::Relaxed) {
             uwriteln!(w, "{}", imu_data).ok();
-            if self.printing_state.gps_printing.load(Ordering::Relaxed) {
-                uwriteln!(w, "{}", gps_data).ok();
-            }
         }
     }
 

@@ -40,9 +40,7 @@
 
 ## PWM
 
-USE TIM5 FOR THE PA PINS
-
-USE TIM3 FOR THE PB PINS
+_TIM3_
 
 | Output | Pin Number |
 |--------|------------|

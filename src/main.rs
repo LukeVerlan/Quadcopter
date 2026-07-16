@@ -11,19 +11,22 @@ use panic_probe as _;
 use defmt_rtt as _;      // transport backend
 
 use rtic::app;
-use rtic_monotonics::systick::prelude::*;
 use embedded_alloc::LlffHeap as Heap;
+use rtic_monotonics::fugit::TimerDurationU64;
 
 // Subject to change
 const HEAP_SIZE: usize = 4096;
+const IMU_TIME_US: TimerDurationU64<1_000_000> = TimerDurationU64::from_ticks(250); // 250 micros
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-systick_monotonic!(Mono, 10_000);
-
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
 mod app {
+
+    use rtic_monotonics::Monotonic;
+    use rtic_monotonics::stm32_tim5_monotonic;
+
     use super::*;
     use super::icm42688p::icm42688p::{
         Icm42688p, IMUData, imu_setup
@@ -49,6 +52,8 @@ mod app {
     use super::cli::cli::QuadCli;
     use stm32f4xx_hal::timer::DelayUs;
     use stm32f4xx_hal::rcc::Config;
+
+    stm32_tim5_monotonic!(Mono, 1_000_000);
 
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
@@ -85,7 +90,7 @@ mod app {
         }
 
         // delay clock startup
-        Mono::start(cx.core.SYST, rcc.clocks.sysclk().to_Hz());
+        Mono::start(rcc.clocks.timclk1().raw());
 
         defmt::println!("BOOT");
 
@@ -151,7 +156,6 @@ mod app {
 
         // // -------------------------------------------
 
-        blink::spawn().unwrap();
         imu_update::spawn().unwrap();
 
         (Shared {
@@ -176,10 +180,6 @@ mod app {
 
             let imu_data = imu.lock(|imu| { imu.clone() });
 
-            cli.print_state(
-                &imu_data, ser, Mono::now().ticks()
-            );
-
             if usb_dev.poll(&mut [ser]) {
 
                 // 64 serial characters
@@ -194,37 +194,24 @@ mod app {
         }
     }
 
-    #[task(local=[led], priority = 1)]
-    async fn blink(_cx: blink::Context) {
-        let led = _cx.local.led;
-        loop {
-            led.toggle();
-            Mono::delay(1000.millis()).await; // Wait 500 milliseconds
-        }
-    }
-
-    #[task(local = [imu], shared = [imu_data], priority = 2)]
+    // IMU is the highest priority for flight stability
+    #[task(local = [imu], shared = [imu_data], priority = 4)]
     async fn imu_update(mut _cx: imu_update::Context) {
         let imu = _cx.local.imu;
         let mut imu_data = _cx.shared.imu_data;
 
-        let mut res = imu.startup(&mut Mono).await;
-
-        while !res.is_ok() { // Verifying WhoAmI
-            Mono::delay(50.millis()).await;
-            res = imu.startup(&mut Mono).await;
-        }
+        imu.startup(&mut Mono).await.unwrap();
 
         loop {
-            // Update vals
+            let next = Mono::now() + IMU_TIME_US;
+
             imu.update().await.unwrap();
 
-            // Safely clone the data from the imu
             imu_data.lock(|imu_data| {
                 *imu_data = imu.get_data();
             });
 
-            Mono::delay(250.micros()).await;
+            Mono::delay_until(next).await;
         }
-    }
+    } // IMU
 }

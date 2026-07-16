@@ -5,9 +5,10 @@ edition = "2021"
 
 [dependencies]
 cortex-m-rt = "0.7.5"
+panic-halt = "1.0.0"
 rtic = { version = "2", features = ["thumbv7-backend"] }
-rtic-monotonics = { version = "2", features = ["cortex-m-systick"] }
-stm32f4xx-hal = { version = "0.23", features = ["stm32f411", "usb_fs"] }
+rtic-monotonics = { version = "2", features = ["stm32f411ce", "stm32_tim5"] }
+stm32f4xx-hal = { version = "0.23.0", features = ["stm32f411", "usb_fs"] }
 embedded-hal = "1.0.0"
 embedded-hal-async = "1.0"
 embedded-alloc = "0.7.0"
@@ -22,6 +23,8 @@ defmt-rtt = "0.4"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 cortex-m = "0.7.7"
 ufmt_float = "0.2.0"
+embedded-hal-nb = "1.0.0"
+nb = "1.1.0"
 ryu = "1.0.23"
 
 [package.metadata.dfu]

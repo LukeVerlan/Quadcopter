@@ -23,8 +23,6 @@ const IMU_TIME_US: TimerDurationU64<1_000_000> = TimerDurationU64::from_ticks(25
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-// systick_monotonic!(Mono, 10_000);
-
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1, EXTI2])]
 mod app {
     use rtic_monotonics::Monotonic;
@@ -53,7 +51,6 @@ mod app {
     use stm32f4xx_hal::otg_fs::{USB, UsbBus};
     use usbd_serial::SerialPort;
     use embedded_cli::cli::{CliBuilder};
-    use embedded_hal::pwm::SetDutyCycle;
     use rtic_monotonics::fugit::ExtU64;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use stm32f4xx_hal::serial::{Rx, Tx, Serial, Event};
@@ -64,7 +61,7 @@ mod app {
     use crate::x4r::x4r::{X4rData, X4r, SBUS_MESSAGE_LENGTH, X4R_SBUS_CONFIG, get_x4r_dma_config};
 
     use stm32f4xx_hal::rcc::Config;
-    use stm32f4xx_hal::timer::{FTimer, CounterUs};
+    use stm32f4xx_hal::timer::{CounterUs};
 
     stm32_tim5_monotonic!(Mono, 1_000_000);
 

@@ -11,7 +11,6 @@ use panic_probe as _;
 use defmt_rtt as _;
 
 use rtic::app;
-use rtic_monotonics::systick::prelude::*;
 use embedded_alloc::LlffHeap as Heap;
 
 // Subject to change
@@ -20,10 +19,11 @@ const HEAP_SIZE: usize = 4096;
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-systick_monotonic!(Mono, 10_000);
-
 #[app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1])]
 mod app {
+
+    use rtic_monotonics::Monotonic;
+    use rtic_monotonics::stm32_tim5_monotonic;
 
     use super::*;
     use super::cli::cli::{ Writer };
@@ -34,6 +34,7 @@ mod app {
     use usbd_serial::SerialPort;
     use embedded_cli::cli::{CliBuilder};
     use embedded_io::Write;
+    use rtic_monotonics::fugit::ExtU64;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use stm32f4xx_hal::serial::{Rx, Serial, Event};
     use usb_device::bus::UsbBusAllocator;
@@ -50,6 +51,9 @@ mod app {
     static mut USB_BUS: Option<UsbBusAllocator<UsbBus<USB>>> = None;
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
     static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // Serial port
+
+
+    stm32_tim5_monotonic!(Mono, 1_000_000);
     #[shared]
     struct Shared {
 
@@ -89,7 +93,7 @@ mod app {
         unsafe { embedded_alloc::init!(HEAP, HEAP_SIZE); }
 
         // delay clock startup
-        Mono::start(cx.core.SYST, rcc.clocks.sysclk().to_Hz());
+        Mono::start(rcc.clocks.timclk1().raw());
 
         defmt::println!("BOOT");
 
@@ -284,7 +288,7 @@ mod app {
         };
 
         // Message frame size, skip the rest of this message to pick up the next freshly
-        Mono::delay(3.millis()).await;
+        Mono::delay(3u64.millis()).await;
 
         defmt::println!("Resetting the DMA");
 

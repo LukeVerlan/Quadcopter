@@ -52,8 +52,8 @@ mod app {
     static mut SER: Option<SerialPort<'static, UsbBus<USB>>> = None;
     static mut EP_MEMORY: [u32; 1024] = [0; 1024]; // Serial port
 
-
     stm32_tim5_monotonic!(Mono, 1_000_000);
+
     #[shared]
     struct Shared {
 

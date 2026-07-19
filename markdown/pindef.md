@@ -66,8 +66,8 @@ _TIM3_
 ## Telemetry -- USART1
 | Output | Pin Number |
 |--------|------------|
-| RX     | PA2        |
-| TX     | PA3        | 
+| RX     | PA3        |
+| TX     | PA2        | 
 
 TX is unused for telemetry
 

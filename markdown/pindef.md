@@ -35,8 +35,8 @@
 
 | Output | Pin Number |
 |--------|------------|
-| RX     | PA3        |
-| TX     | PA2        |
+| RX     | PA10       |
+| TX     | PA9        |
 
 ## PWM
 
@@ -66,8 +66,8 @@ _TIM3_
 ## Telemetry -- USART1
 | Output | Pin Number |
 |--------|------------|
-| RX     | PA10       |
-| TX     | PA9        | 
+| RX     | PA2        |
+| TX     | PA3        | 
 
 TX is unused for telemetry
 

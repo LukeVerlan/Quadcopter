@@ -1,11 +1,13 @@
 #![no_std]
 #![no_main]
 
-pub mod cli;
-pub mod icm42688p;
-pub mod util;
-pub mod x4r;
-pub mod pwm;
+mod cli;
+mod icm42688p;
+mod util;
+mod x4r;
+mod pwm;
+mod controls;
+
 
 extern crate alloc;
 
@@ -263,8 +265,6 @@ mod app {
         // ---------------------------------------------
 
         imu_update::spawn().unwrap();
-
-        // GPS SETUP
 
         (Shared {
             imu_data,

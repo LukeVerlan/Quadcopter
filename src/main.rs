@@ -59,7 +59,7 @@ mod app {
     use usb_device::bus::UsbBusAllocator;
 
     use stm32f4xx_hal::timer::DelayUs;
-    use stm32f4xx_hal::dma::{DmaFlag, PeripheralToMemory, Stream2, StreamsTuple, Transfer};
+    use stm32f4xx_hal::dma::{DmaFlag, PeripheralToMemory, Stream5, StreamsTuple, Transfer};
     use crate::x4r::x4r::{X4rData, X4r, SBUS_MESSAGE_LENGTH, X4R_SBUS_CONFIG, get_x4r_dma_config};
 
     use stm32f4xx_hal::rcc::Config;
@@ -68,7 +68,7 @@ mod app {
     stm32_tim5_monotonic!(Mono, 1_000_000);
 
     type X4rDmaTransfer = // From the DMA Table
-    Transfer<Stream2<DMA2>, 4, Rx<USART1, u8>, PeripheralToMemory, &'static mut [u8; SBUS_MESSAGE_LENGTH]>;
+    Transfer<Stream5<DMA1>, 4, Rx<USART2, u8>, PeripheralToMemory, &'static mut [u8; SBUS_MESSAGE_LENGTH]>;
     type Pwm =
     EscPwm<PwmChannel<TIM3, 0>, PwmChannel<TIM3, 1>, PwmChannel<TIM3, 2>, PwmChannel<TIM3, 3>>;
 
@@ -236,9 +236,9 @@ mod app {
 
         let x4r_dma_config = get_x4r_dma_config();
 
-        let mut telem_usart = Serial::<USART1, u8>::new(
-            dp.USART1,
-            (gpioa.pa9.into_alternate(), gpioa.pa10.into_alternate()),
+        let mut telem_usart = Serial::<USART2, u8>::new(
+            dp.USART2,
+            (gpioa.pa2.into_alternate(), gpioa.pa3.into_alternate()),
             X4R_SBUS_CONFIG,
             &mut rcc
         ).unwrap();
@@ -247,10 +247,10 @@ mod app {
 
         let (_tx, rx) = telem_usart.split();
 
-        let channels = StreamsTuple::new(dp.DMA2, &mut rcc);
+        let streams = StreamsTuple::new(dp.DMA1, &mut rcc);
 
         let mut x4r_dma = X4rDmaTransfer::init_peripheral_to_memory(
-            channels.2,
+            streams.5,
             rx,
             cx.local.x4r_dma_buf1,
             None,

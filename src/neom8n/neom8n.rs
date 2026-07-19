@@ -10,7 +10,7 @@ use ufmt::{uDisplay, Formatter, uwrite, uWrite};
 use stm32f4xx_hal::prelude::*;
 use crate::util::util::{parse_f64, parse_f32, parse_u8, DisplayFloat} ;
 
-// TODO: Comment functions on this bum code
+// TODO: UPDATE TO NEW PA10 and PA9 PIN DEFS
 
 /** Constants */
 const MAX_NMEA_0183: usize = 82;
